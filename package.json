@@ -1,0 +1,16 @@
+{
+  "name": "minecraft-pixel-art-bot",
+  "version": "2.0.0",
+  "description": "Minecraft pixel art builder bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "mineflayer": "^4.23.0",
+    "jimp": "^0.22.12"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
