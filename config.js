@@ -8,7 +8,7 @@ module.exports = {
   server: {
     host: 'forreal8797869.aternos.me',   // <-- Put your Aternos address here
     port: 64771,
-    version: '1.26.2',                 // Don't change
+    version: '1.21.1',                 // Don't change
   },
 
   bot: {
