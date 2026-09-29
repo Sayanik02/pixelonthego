@@ -7,6 +7,36 @@ const config = require('./config');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const MAX_FILL = 32768;
+const MAX_Y = 319;   // 1.20.4 build limit
+
+// /fill a box, split so no single command goes over the 32768-block limit
+async function fillBox(bot, x1, y1, z1, x2, y2, z2, block, delay) {
+  const dx = x2 - x1 + 1, dy = y2 - y1 + 1, dz = z2 - z1 + 1;
+  if (dx <= 0 || dy <= 0 || dz <= 0) return 0;
+  const xStep = Math.max(1, Math.min(dx, Math.floor(MAX_FILL / dy)));
+  const zStep = Math.max(1, Math.floor(MAX_FILL / (xStep * dy)));
+  let n = 0;
+  for (let z = z1; z <= z2; z += zStep) {
+    for (let x = x1; x <= x2; x += xStep) {
+      bot.chat(`/fill ${x} ${y1} ${z} ${Math.min(x + xStep - 1, x2)} ${y2} ${Math.min(z + zStep - 1, z2)} minecraft:${block}`);
+      n++;
+      if (delay > 0) await sleep(delay);
+    }
+  }
+  return n;
+}
+
+// Get a band of rows ready for art:
+//   1. lay a solid stone layer one block DOWN first (so sand can never fall, not even for a tick)
+//   2. wipe EVERYTHING above the art layer, all the way up (trees, hills, grass, water, lava...)
+async function clearAndSupport(bot, originX, originY, originZ, W, r0, r1, delay) {
+  const cfgH = config.build.clearHeight;
+  const top = (cfgH === 'max' || cfgH == null) ? MAX_Y : Math.min(originY + cfgH, MAX_Y);
+  const x1 = originX, x2 = originX + W - 1;
+  const z1 = originZ + r0, z2 = originZ + r1 - 1;
+  await fillBox(bot, x1, originY - 1, z1, x2, originY - 1, z2, 'stone', delay);
+  await fillBox(bot, x1, originY + 1, z1, x2, top, z2, 'air', delay);
+}
 
 // Merge a band of rows [r0, r1) into as few rectangles as possible
 function bandRects(grid, r0, r1) {
@@ -97,7 +127,8 @@ function checkOp(bot) {
 }
 
 // Returns 'done' | 'paused' | 'fallback'
-async function buildWithOp(bot, grid, progress, ctl) {
+async function buildWithOp(bot, grid, progress, ctl, opts = {}) {
+  const prep = opts.prep !== false;   // clear above + support below (default on)
   const W = grid[0].length;
   const H = grid.length;
   const { originX, originY, originZ } = progress;
@@ -142,7 +173,7 @@ async function buildWithOp(bot, grid, progress, ctl) {
       const fz1 = originZ + r0, fz2 = originZ + r1 - 1;
 
       const rects = bandRects(grid, r0, r1);
-      if (rects.length === 0) { progress.lastRow = r1; continue; }
+      if (rects.length === 0 && !prep) { progress.lastRow = r1; continue; }
 
       // Force-load this band's chunks (bot stays at the start area)
       bot.chat(`/forceload add ${fx1} ${fz1} ${fx2} ${fz2}`);
@@ -154,6 +185,12 @@ async function buildWithOp(bot, grid, progress, ctl) {
       // Fills are idempotent, so a failed band can safely be re-run once
       for (let attempt = 0; attempt < 2; attempt++) {
         failures = 0;
+        if (prep) {
+          await clearAndSupport(bot, originX, originY, originZ, W, r0, r1, delay);
+          // keep the gold screenshot marker (clearing removes it)
+          if (progress.centerX != null && progress.centerZ != null && progress.centerZ >= fz1 && progress.centerZ <= fz2)
+            bot.chat(`/setblock ${progress.centerX} ${originY + 1} ${progress.centerZ} minecraft:gold_block`);
+        }
         for (const q of rects) {
           if (!ctl.isBuilding()) { console.log('[OP] Paused.'); return 'paused'; }
           const x1 = originX + q.c,           z1 = originZ + q.r;
@@ -181,9 +218,10 @@ async function buildWithOp(bot, grid, progress, ctl) {
   return 'done';
 }
 
-// OP terrain prep: stone base in a few /fill commands
+// OP terrain prep: clear everything above, support layer below, stone art layer
 async function prepWithOp(bot, originX, originY, originZ, W, H) {
   const bandRows = 80;
+  const delay = Math.max(config.build.opDelay ?? 20, 20);
   bot.chat(`/tp @s ${originX + 2} ${originY + 3} ${originZ + 2}`);
   await sleep(1500);
   for (let r0 = 0; r0 < H; r0 += bandRows) {
@@ -191,14 +229,11 @@ async function prepWithOp(bot, originX, originY, originZ, W, H) {
     const z1 = originZ + r0, z2 = originZ + r1 - 1, x2 = originX + W - 1;
     bot.chat(`/forceload add ${originX} ${z1} ${x2} ${z2}`);
     await sleep(3500);
-    // split into chunks of <=32768 blocks (65 rows of 500)
-    const step = Math.max(1, Math.floor(MAX_FILL / W));
-    for (let z = z1; z <= z2; z += step) {
-      bot.chat(`/fill ${originX} ${originY} ${z} ${x2} ${originY} ${Math.min(z + step - 1, z2)} minecraft:stone`);
-      await sleep(150);
-    }
+    await clearAndSupport(bot, originX, originY, originZ, W, r0, r1, delay);
+    await fillBox(bot, originX, originY, z1, x2, originY, z2, 'stone', delay);
     await sleep(500);
     bot.chat(`/forceload remove ${originX} ${z1} ${x2} ${z2}`);
+    console.log(`[OP] Prep rows ${r1}/${H}`);
   }
 }
 
