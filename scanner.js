@@ -18,7 +18,7 @@ const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || '.';
 const WORLD_PATH = `${VOLUME}/world.png`;
 
 const TILE   = 80;   // blocks per scan tile (bot stands in the middle)
-const SCAN_H = 40;   // how many blocks above the build layer to check
+const MAX_Y  = 319;  // world height limit (1.20.4)
 
 // categories
 const OK = 0, TREE = 1, WATER = 2, LAVA = 3, OTHER = 4, PLANT = 5, WRONG = 6, UNKNOWN = 7;
@@ -54,6 +54,9 @@ async function scanWorld(bot, grid, progress) {
   if (state.status === 'running') return;
   const W = grid[0].length, H = grid.length;
   const { originX, originY, originZ } = progress;
+  // check the same space that repair clears: the whole sky ('max') or a fixed number of blocks
+  const cfgH = config.build.clearHeight;
+  const SCAN_H = Math.max(1, (cfgH === 'max' || cfgH == null) ? MAX_Y - originY : Math.min(cfgH, MAX_Y - originY));
 
   state.status = 'running';
   state.message = 'Checking OP...';
@@ -71,6 +74,7 @@ async function scanWorld(bot, grid, progress) {
     }
     const nameOf = (id) => (bot.registry.blocksByStateId[id] || {}).name || 'unknown';
     const paletteRGB = new Map(BLOCK_PALETTE.map(p => [p.block, [p.sr ?? p.r, p.sg ?? p.g, p.sb ?? p.b]]));
+    paletteRGB.set('smooth_sandstone', [223, 214, 170]);   // old blocks from before the sand fix (repair replaces them)
 
     const cat = new Uint8Array(W * H);
     const mismatch = new Uint8Array(W * H); // 1 = layer block differs from the image (fixable by repair)
@@ -93,7 +97,7 @@ async function scanWorld(bot, grid, progress) {
         const czw = originZ + Math.floor((r0 + r1) / 2);
 
         state.message = `Scanning tile ${state.tilesDone + 1}/${state.tilesTotal}`;
-        bot.chat(`/tp @s ${cxw} ${originY + SCAN_H + 5} ${czw}`);
+        bot.chat(`/tp @s ${cxw} ${Math.min(originY + 10, MAX_Y - 4)} ${czw}`);
 
         // wait until every chunk of this tile is loaded (max 10s)
         const t0 = Date.now();
@@ -189,7 +193,7 @@ async function scanWorld(bot, grid, progress) {
       ['Trees',       CAT_COLOR[TREE],    counts.tree],
       ['Water',       CAT_COLOR[WATER],   counts.water],
       ['Lava',        CAT_COLOR[LAVA],    counts.lava],
-      ['Other block', CAT_COLOR[OTHER],   counts.other],
+      ['Blocks above art', CAT_COLOR[OTHER], counts.other],
       ['Wrong block', CAT_COLOR[WRONG],   counts.wrong],
       ['Not loaded',  CAT_COLOR[UNKNOWN], counts.unknown],
     ];
