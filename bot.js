@@ -142,26 +142,34 @@ async function startRepair() {
       if (st.status !== 'done') { repairStatus = 'Failed: ' + st.message; return; }
 
       const mask = st.mismatch;
+      const k = st.counts;
+      const obstacles = k.tree + k.water + k.lava + k.other + k.plant;
       let need = 0;
       const masked = blockGrid.map((row, r) => row.map((n, c) => (mask[r * W + c] ? (need++, n) : null)));
-      if (need === 0) { repairStatus = 'Nothing to repair - build is correct'; return; }
-
-      repairStatus = 'Repairing ' + need + ' blocks...';
+      // Always runs, even if the scan looks clean: it also lays the stone layer under the art and clears the sky.
+      repairStatus = 'Clearing sky (' + obstacles + ' blocked columns), stone layer below, fixing ' + need + ' blocks...';
       console.log('[Repair] ' + repairStatus);
       let repairing = true;
-      const tmp = { lastRow: 0, lastCol: 0, totalPlaced: 0, originX: progress.originX, originY: progress.originY, originZ: progress.originZ };
-      const res = await buildWithOp(bot, masked, tmp, { isBuilding: () => repairing, save: () => {} });
+      const tmp = { lastRow: 0, lastCol: 0, totalPlaced: 0, originX: progress.originX, originY: progress.originY, originZ: progress.originZ, centerX: progress.centerX, centerZ: progress.centerZ };
+      // prep=true: wipes everything above the art + lays the stone layer under it (so sand stays)
+      const res = await buildWithOp(bot, masked, tmp, { isBuilding: () => repairing, save: () => {} }, { prep: true });
       if (res === 'fallback') { repairStatus = 'Failed: bot is not OP'; return; }
 
       repairStatus = 'Re-scanning to verify...';
       await scanWorld(bot, blockGrid, progress);
       st = getScanState();
-      if (st.status === 'done' && st.counts.wrong === 0) {
-        progress.totalPlaced = W * H;
-        saveProgress(progress);
-        repairStatus = 'Done - build verified, 0 wrong blocks';
+      if (st.status === 'done') {
+        const k2 = st.counts;
+        const left = k2.tree + k2.water + k2.lava + k2.other;
+        if (k2.wrong === 0 && left === 0) {
+          progress.totalPlaced = W * H;
+          saveProgress(progress);
+          repairStatus = 'Done - build verified, 0 wrong blocks, nothing covering the art';
+        } else {
+          repairStatus = 'Done - ' + k2.wrong + ' blocks still wrong, ' + left + ' columns still blocked';
+        }
       } else {
-        repairStatus = 'Done - ' + (st.counts ? st.counts.wrong : '?') + ' blocks still wrong';
+        repairStatus = 'Failed: ' + st.message;
       }
       console.log('[Repair] ' + repairStatus);
     } catch (e) {
