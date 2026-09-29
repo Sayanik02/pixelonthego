@@ -1,18 +1,16 @@
 // ============================================================
-//   MINECRAFT PIXEL ART BOT - CONFIG FILE
-//   Edit ONLY this file. Never touch the other files.
+//   CONFIG — edit only this file
 // ============================================================
 
 module.exports = {
 
   server: {
-    host: 'forreal8797869.aternos.me',   // <-- Put your Aternos address here
-    port: 64771,
-    version: '1.20.4',                 // Don't change
+    host:    'forreal8797869.aternos.me',
+    port:    64771,
+    version: '1.20.4',
   },
 
   bot: {
-    // Pre-OP all these names on Aternos!
     usernames: [
       'PixelBot_Arjun',
       'PixelBot_Raven',
@@ -25,22 +23,22 @@ module.exports = {
       'PixelBot_Flux',
       'PixelBot_Zion',
     ],
-    reconnectDelay: 5000,
-    maxReconnectAttempts: 99999, // basically never stop trying
+    reconnectDelay:       5000,
+    maxReconnectAttempts: 99999,
   },
 
   image: {
-    path: './images/input.png',   // Drop your image here
-    width: 500,
+    path:   './images/input.png',
+    width:  500,
     height: 500,
   },
 
   build: {
-    saveEvery: 100,
-    placeDelay: 50,               // ms between block placements
+    saveEvery:     100,
+    placeDelay:    50,    // ms between blocks (~3.5hrs for 250k blocks)
+    flyHeight:     3,     // fly just above build level
     retryAttempts: 3,
-    retryDelay: 5000,
-    flyHeight: 15,                // how high above terrain to fly while building
+    retryDelay:    3000,
   },
 
 };
