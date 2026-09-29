@@ -1,10 +1,9 @@
 // ============================================================
 //   MINECRAFT PIXEL ART BOT v2.1
 //   - Creative mode block placement (no OP needed)
-//   - Live POV viewer at http://localhost:3000
+//   - Status page at your Railway public URL (port 3000)
 //   - Railway volume support for persistent progress + image
 //   - Auto-resume on reconnect
-//   - Single reconnect guard
 //
 //   Aternos console commands (prefix with "say "):
 //   say pixel prepare   - Flatten terrain
@@ -19,11 +18,10 @@
 process.on('uncaughtException',  (err) => console.error('[UNCAUGHT]', err.message, err.stack));
 process.on('unhandledRejection', (err) => console.error('[REJECTION]', err?.message ?? err));
 
-const mineflayer      = require('mineflayer');
-const { Vec3 }        = require('vec3');
-const express         = require('express');
-const { mineflayer: viewer } = require('prismarine-viewer');
-const config          = require('./config');
+const mineflayer = require('mineflayer');
+const { Vec3 }   = require('vec3');
+const express    = require('express');
+const config     = require('./config');
 const { loadProgress, saveProgress, clearBuildProgress, logSkipped, markBanned } = require('./progressManager');
 const { watchForImage, processImage, isImageReady } = require('./imageProcessor');
 const { prepareTerrain, creativePlace } = require('./terrain');
@@ -38,7 +36,7 @@ let isReconnecting    = false;
 let reconnectAttempts = 0;
 let currentUsername   = null;
 let currentUsernameIndex = progress.currentUsernameIndex || 0;
-let viewerStarted     = false;
+let buildStartTime    = null;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -54,79 +52,55 @@ app.get('/', (req, res) => {
   const prepStatus  = isPreparing ? '✅ Yes' : '❌ No';
   const imgStatus   = isImageReady() ? '✅' : '❌';
   const prepDone    = progress.prepDone ? '✅' : '❌';
-  const username    = currentUsername ?? 'none';
-  const originX     = progress.originX ?? '?';
-  const originY     = progress.originY ?? '?';
-  const originZ     = progress.originZ ?? '?';
-  const lastRow     = progress.lastRow;
-  const lastCol     = progress.lastCol;
+  const username    = currentUsername || 'none';
+  const originX     = progress.originX !== null ? progress.originX : '?';
+  const originY     = progress.originY !== null ? progress.originY : '?';
+  const originZ     = progress.originZ !== null ? progress.originZ : '?';
   const placed      = progress.totalPlaced.toLocaleString();
   const totalStr    = total.toLocaleString();
 
-  res.send(`<!DOCTYPE html>
-<html>
-<head>
-  <title>PixelBot Status</title>
-  <meta http-equiv="refresh" content="10">
-  <style>
-    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 30px; }
-    h1   { color: #00d4ff; }
-    .stat { background: #16213e; padding: 15px; border-radius: 8px; margin: 10px 0; }
-    .bar  { background: #0f3460; border-radius: 4px; height: 20px; }
-    .fill { background: #00d4ff; border-radius: 4px; height: 20px; width: ${pct}%; }
-    a     { color: #00d4ff; }
-    .online  { color: #00ff88; }
-    .offline { color: #ff4444; }
-  </style>
-</head>
-<body>
-  <h1>🎨 Minecraft Pixel Art Bot</h1>
-  <div class="stat">
-    <b>Bot:</b> <span class="${botClass}">${botStatus}</span> — ${username}<br>
-    <b>Building:</b> ${buildStatus} &nbsp;|&nbsp; <b>Preparing:</b> ${prepStatus}
-  </div>
-  <div class="stat">
-    <b>Progress:</b> ${placed} / ${totalStr} blocks (${pct}%)<br>
-    <div class="bar"><div class="fill"></div></div><br>
-    <b>Row:</b> ${lastRow} / ${config.image.height} &nbsp;|&nbsp;
-    <b>Col:</b> ${lastCol} / ${config.image.width}
-  </div>
-  <div class="stat">
-    <b>Origin:</b> (${originX}, ${originY}, ${originZ})<br>
-    <b>Prep done:</b> ${prepDone} &nbsp;|&nbsp; <b>Image ready:</b> ${imgStatus}
-  </div>
-  <div class="stat">
-    <b>🎮 Live POV Viewer:</b><br>
-    <a href="/viewer" target="_blank">Open Bot POV (3D view) →</a><br>
-    <small>Page auto-refreshes every 10s</small>
-  </div>
-</body>
-</html>`);
-});
-
-app.get('/viewer', (req, res) => {
-  res.send(`<!DOCTYPE html>
-<html>
-<head><title>Bot POV</title></head>
-<body style="margin:0;background:#000">
-  <iframe src="http://localhost:3007" width="100%" height="100%" style="border:none;position:fixed;top:0;left:0"></iframe>
-</body>
-</html>`);
-});
-
-app.listen(3000, () => console.log('[Web] Status page: http://localhost:3000'));
-
-// ── Start prismarine viewer ───────────────────────────────────
-function startViewer(bot) {
-  if (viewerStarted) return;
-  try {
-    viewer(bot, { port: 3007, firstPerson: true });
-    viewerStarted = true;
-    console.log('[Viewer] 🎮 Bot POV live at http://localhost:3007');
-  } catch (e) {
-    console.log('[Viewer] Could not start viewer:', e.message);
+  // Estimate time remaining
+  let eta = '';
+  if (isBuilding && buildStartTime && progress.totalPlaced > 0) {
+    const elapsed = (Date.now() - buildStartTime) / 1000;
+    const rate    = progress.totalPlaced / elapsed;
+    const remaining = (total - progress.totalPlaced) / rate;
+    const hrs  = Math.floor(remaining / 3600);
+    const mins = Math.floor((remaining % 3600) / 60);
+    eta = hrs + 'h ' + mins + 'm remaining';
   }
-}
+
+  res.send('<!DOCTYPE html><html><head><title>PixelBot Status</title>' +
+    '<meta http-equiv="refresh" content="10">' +
+    '<style>' +
+    'body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:30px;max-width:700px;margin:auto}' +
+    'h1{color:#00d4ff}' +
+    '.stat{background:#16213e;padding:15px;border-radius:8px;margin:10px 0;line-height:1.8}' +
+    '.bar{background:#0f3460;border-radius:4px;height:24px;margin-top:8px}' +
+    '.fill{background:#00d4ff;border-radius:4px;height:24px;width:' + pct + '%}' +
+    '.online{color:#00ff88}.offline{color:#ff4444}' +
+    '</style></head><body>' +
+    '<h1>🎨 Minecraft Pixel Art Bot</h1>' +
+    '<div class="stat">' +
+    '<b>Bot:</b> <span class="' + botClass + '">' + botStatus + '</span> — ' + username + '<br>' +
+    '<b>Building:</b> ' + buildStatus + ' &nbsp;|&nbsp; <b>Preparing:</b> ' + prepStatus +
+    '</div>' +
+    '<div class="stat">' +
+    '<b>Progress:</b> ' + placed + ' / ' + totalStr + ' blocks (' + pct + '%)<br>' +
+    '<div class="bar"><div class="fill"></div></div>' +
+    (eta ? '<br><small>⏱ ' + eta + '</small>' : '') +
+    '</div>' +
+    '<div class="stat">' +
+    '<b>Row:</b> ' + progress.lastRow + ' / ' + config.image.height + ' &nbsp;|&nbsp; ' +
+    '<b>Col:</b> ' + progress.lastCol + ' / ' + config.image.width + '<br>' +
+    '<b>Origin:</b> (' + originX + ', ' + originY + ', ' + originZ + ')<br>' +
+    '<b>Prep done:</b> ' + prepDone + ' &nbsp;|&nbsp; <b>Image ready:</b> ' + imgStatus +
+    '</div>' +
+    '<div class="stat"><small>Auto-refreshes every 10s</small></div>' +
+    '</body></html>');
+});
+
+app.listen(3000, () => console.log('[Web] Status page running on port 3000'));
 
 // ── Username rotation ─────────────────────────────────────────
 function getNextUsername() {
@@ -184,8 +158,6 @@ async function onSpawn() {
   console.log('[Bot] ✅ Spawned as "' + currentUsername + '"!');
   reconnectAttempts = 0;
   await sleep(3000);
-
-  startViewer(bot);
 
   try { bot.creative.startFlying(); } catch (e) {}
 
@@ -293,7 +265,8 @@ async function onChat(username, message) {
 // ── Main build loop ───────────────────────────────────────────
 async function startBuilding() {
   if (isBuilding) return;
-  isBuilding = true;
+  isBuilding     = true;
+  buildStartTime = Date.now();
 
   if (!blockGrid) {
     console.log('[Bot] Processing image...');
@@ -381,7 +354,6 @@ async function onKicked(reason) {
 function scheduleReconnect() {
   if (isReconnecting) return;
   isReconnecting = true;
-  viewerStarted  = false;
 
   try { if (bot) bot.quit(); } catch (e) {}
   bot = null;
@@ -403,7 +375,7 @@ console.log('  MINECRAFT PIXEL ART BOT v2.1');
 console.log('================================================');
 console.log('  Server  : ' + config.server.host + ':' + config.server.port);
 console.log('  Size    : ' + config.image.width + 'x' + config.image.height);
-console.log('  Status  : http://localhost:3000');
+console.log('  Status  : expose port 3000 in Railway for live status');
 console.log('================================================\n');
 
 createBot();
