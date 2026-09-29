@@ -126,7 +126,15 @@ app.get('/', (req, res) => {
 });
 
 // Proxy POV viewer (prismarine-viewer runs on 3007)
-app.get('/viewer', (req, res) => {
+// We proxy server-side so the browser never tries to reach localhost directly
+let httpProxyMiddleware = null;
+try {
+  httpProxyMiddleware = require('http-proxy-middleware').createProxyMiddleware;
+} catch (e) {
+  console.log('[Viewer] http-proxy-middleware not available: ' + e.message);
+}
+
+app.get('/viewer', (req, res, next) => {
   if (!viewerStarted) {
     res.send('<html><body style="background:#000;color:#fff;font-family:monospace;padding:30px">' +
       '<h2>POV Viewer not available</h2>' +
@@ -134,12 +142,30 @@ app.get('/viewer', (req, res) => {
       '<a href="/" style="color:#00d4ff">← Back to status</a></body></html>');
     return;
   }
-  res.send('<!DOCTYPE html><html><head><title>Bot POV</title></head>' +
-    '<body style="margin:0;background:#000">' +
-    '<iframe src="http://localhost:3007" width="100%" height="100%" ' +
-    'style="border:none;position:fixed;top:0;left:0;width:100%;height:100%"></iframe>' +
-    '</body></html>');
+  if (!httpProxyMiddleware) {
+    res.send('<html><body style="background:#000;color:#fff;font-family:monospace;padding:30px">' +
+      '<h2>Proxy not available</h2>' +
+      '<p>Run: <code>npm install http-proxy-middleware</code> then redeploy.</p>' +
+      '<a href="/" style="color:#00d4ff">← Back to status</a></body></html>');
+    return;
+  }
+  next();
 });
+
+// Mount the actual proxy for /viewer and its sub-paths (WebSocket + HTTP)
+if (true) { // always register; middleware guards when viewer isn't ready
+  const lazyProxy = (req, res, next) => {
+    if (!viewerStarted || !httpProxyMiddleware) { next(); return; }
+    httpProxyMiddleware({
+      target: 'http://127.0.0.1:3007',
+      changeOrigin: true,
+      ws: true,
+      pathRewrite: { '^/viewer': '' },
+      logLevel: 'silent',
+    })(req, res, next);
+  };
+  app.use('/viewer', lazyProxy);
+}
 
 app.listen(3000, () => console.log('[Web] Status page running on port 3000'));
 
