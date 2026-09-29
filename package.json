@@ -11,7 +11,8 @@
     "jimp": "^0.22.12",
     "express": "^4.18.2",
     "prismarine-viewer": "^1.28.0",
-    "canvas": "^2.11.2"
+    "canvas": "^2.11.2",
+    "http-proxy-middleware": "^2.0.9"
   },
   "engines": {
     "node": ">=20.0.0"
