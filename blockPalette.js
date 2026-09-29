@@ -12,14 +12,12 @@ const BLOCK_PALETTE = [
   { r: 160, g: 77,  b: 78,  block: 'red_concrete' },
   { r: 224, g: 97,  b: 0,   block: 'orange_concrete' },
   { r: 240, g: 175, b: 21,  block: 'yellow_concrete' },
-  { r: 94,  g: 168, b: 24,  block: 'lime_concrete' },
   { r: 36,  g: 137, b: 199, block: 'light_blue_concrete' },
   { r: 45,  g: 46,  b: 143, block: 'blue_concrete' },
   { r: 100, g: 32,  b: 156, block: 'purple_concrete' },
   { r: 169, g: 48,  b: 159, block: 'magenta_concrete' },
   { r: 213, g: 101, b: 142, block: 'pink_concrete' },
   { r: 21,  g: 119, b: 136, block: 'cyan_concrete' },
-  { r: 73,  g: 91,  b: 36,  block: 'green_concrete' },
   { r: 96,  g: 59,  b: 31,  block: 'brown_concrete' },
 
   // --- WOOL (softer tones) ---
@@ -30,14 +28,12 @@ const BLOCK_PALETTE = [
   { r: 160, g: 83,  b: 65,  block: 'red_wool' },
   { r: 240, g: 118, b: 19,  block: 'orange_wool' },
   { r: 246, g: 208, b: 61,  block: 'yellow_wool' },
-  { r: 112, g: 185, b: 25,  block: 'lime_wool' },
   { r: 58,  g: 176, b: 221, block: 'light_blue_wool' },
   { r: 60,  g: 68,  b: 170, block: 'blue_wool' },
   { r: 122, g: 42,  b: 173, block: 'purple_wool' },
   { r: 188, g: 78,  b: 181, block: 'magenta_wool' },
   { r: 237, g: 141, b: 172, block: 'pink_wool' },
   { r: 21,  g: 137, b: 145, block: 'cyan_wool' },
-  { r: 84,  g: 109, b: 27,  block: 'green_wool' },
   { r: 114, g: 71,  b: 40,  block: 'brown_wool' },
 
   // --- TERRACOTTA (skin tones / earthy) ---
@@ -48,15 +44,15 @@ const BLOCK_PALETTE = [
   { r: 143, g: 61,  b: 46,  block: 'red_terracotta' },
   { r: 162, g: 84,  b: 38,  block: 'orange_terracotta' },
   { r: 186, g: 133, b: 35,  block: 'yellow_terracotta' },
-  { r: 103, g: 117, b: 52,  block: 'lime_terracotta' },
   { r: 113, g: 108, b: 137, block: 'light_blue_terracotta' },
   { r: 74,  g: 59,  b: 91,  block: 'blue_terracotta' },
   { r: 118, g: 70,  b: 86,  block: 'purple_terracotta' },
   { r: 149, g: 88,  b: 108, block: 'magenta_terracotta' },
   { r: 161, g: 78,  b: 78,  block: 'pink_terracotta' },
   { r: 86,  g: 91,  b: 91,  block: 'cyan_terracotta' },
-  { r: 76,  g: 83,  b: 42,  block: 'green_terracotta' },
   { r: 77,  g: 51,  b: 35,  block: 'brown_terracotta' },
+
+  // (green_* and lime_* blocks are left out on purpose: the photo's hair has a green tint that looked like grass)
 
   // --- NATURAL BLOCKS ---
   { r: 125, g: 125, b: 125, block: 'stone' },
