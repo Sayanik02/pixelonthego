@@ -35,7 +35,10 @@ module.exports = {
 
   build: {
     saveEvery:     100,
-    placeDelay:    50,    // ms between blocks (~3.5hrs for 250k blocks)
+    useOp:         true,  // true = bot is OP -> ultra fast /fill mode (falls back automatically if not OP)
+    opDelay:       20,    // ms between /fill commands (raise to 40-60 if server lags/kicks)
+    opBandRows:    80,    // rows per forceload band
+    placeDelay:    5,     // ms between blocks in non-OP mode
     flyHeight:     3,     // fly just above build level
     retryAttempts: 3,
     retryDelay:    3000,
