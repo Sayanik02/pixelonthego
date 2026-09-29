@@ -1,6 +1,5 @@
 // ============================================================
 //   IMAGE PROCESSOR + FILE WATCHER
-//   Watches for image drop and processes it automatically
 // ============================================================
 
 const Jimp = require('jimp');
@@ -8,47 +7,61 @@ const fs = require('fs');
 const { getClosestBlock } = require('./blockPalette');
 const config = require('./config');
 
+// Use Railway volume if available, otherwise local
+const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || '.';
+const IMAGE_PATH = `${VOLUME}/input.png`;
+
 let imageReady = false;
 let onImageReadyCallback = null;
 
-/**
- * Start watching the images folder for a new image
- */
 function watchForImage(callback) {
   onImageReadyCallback = callback;
-  const imagePath = config.image.path;
 
-  // Check if image already exists on startup
-  if (fs.existsSync(imagePath)) {
-    console.log(`[ImageWatcher] Image already found at ${imagePath}`);
+  // Check if image already exists
+  if (fs.existsSync(IMAGE_PATH)) {
+    console.log(`[ImageWatcher] Image found at ${IMAGE_PATH}`);
     imageReady = true;
     if (onImageReadyCallback) onImageReadyCallback();
     return;
   }
 
-  console.log(`[ImageWatcher] Waiting for image at ${imagePath}...`);
-  console.log(`[ImageWatcher] Drop your image in the images/ folder as "input.png"`);
+  // Also check local images/ folder as fallback
+  if (fs.existsSync(config.image.path)) {
+    console.log(`[ImageWatcher] Image found at ${config.image.path}`);
+    imageReady = true;
+    if (onImageReadyCallback) onImageReadyCallback();
+    return;
+  }
 
-  // Watch the images folder
-  fs.watch('./images', (eventType, filename) => {
-    if (filename && filename === 'input.png' && !imageReady) {
-      // Small delay to make sure file is fully written
-      setTimeout(() => {
-        if (fs.existsSync(imagePath)) {
-          console.log(`[ImageWatcher] Image detected! Ready to build.`);
-          imageReady = true;
-          if (onImageReadyCallback) onImageReadyCallback();
-        }
-      }, 1000);
-    }
-  });
+  console.log(`[ImageWatcher] Waiting for image...`);
+  console.log(`[ImageWatcher] Upload input.png to Railway volume at: ${IMAGE_PATH}`);
+
+  // Watch volume folder
+  try {
+    fs.watch(VOLUME, (eventType, filename) => {
+      if (filename === 'input.png' && !imageReady) {
+        setTimeout(() => {
+          if (fs.existsSync(IMAGE_PATH)) {
+            console.log(`[ImageWatcher] Image detected!`);
+            imageReady = true;
+            if (onImageReadyCallback) onImageReadyCallback();
+          }
+        }, 1000);
+      }
+    });
+  } catch (e) {
+    console.log(`[ImageWatcher] Watch error: ${e.message}`);
+  }
 }
 
-/**
- * Process the image into a 2D block grid
- */
+function getImagePath() {
+  if (fs.existsSync(IMAGE_PATH)) return IMAGE_PATH;
+  if (fs.existsSync(config.image.path)) return config.image.path;
+  return IMAGE_PATH;
+}
+
 async function processImage() {
-  const imagePath = config.image.path;
+  const imagePath = getImagePath();
   const width = config.image.width;
   const height = config.image.height;
 
@@ -73,7 +86,7 @@ async function processImage() {
     for (let col = 0; col < width; col++) {
       const pixel = Jimp.intToRGBA(image.getPixelColor(col, row));
       if (pixel.a < 10) {
-        rowBlocks.push(null); // transparent = skip
+        rowBlocks.push(null);
       } else {
         rowBlocks.push(getClosestBlock(pixel.r, pixel.g, pixel.b));
       }

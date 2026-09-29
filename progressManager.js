@@ -4,8 +4,8 @@
 
 const fs = require('fs');
 
-const PROGRESS_FILE = './progress.json';
-const SKIP_LOG = './skipped.log';
+const PROGRESS_FILE = process.env.RAILWAY_VOLUME_MOUNT_PATH ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/progress.json` : './progress.json';
+const SKIP_LOG = process.env.RAILWAY_VOLUME_MOUNT_PATH ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/skipped.log` : './skipped.log';
 
 function loadProgress() {
   if (fs.existsSync(PROGRESS_FILE)) {
