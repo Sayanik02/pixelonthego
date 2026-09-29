@@ -86,4 +86,4 @@ function getClosestBlock(r, g, b) {
   return closestBlock;
 }
 
-module.exports = { getClosestBlock };
+module.exports = { getClosestBlock, BLOCK_PALETTE };
