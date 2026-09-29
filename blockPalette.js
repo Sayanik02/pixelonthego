@@ -60,8 +60,11 @@ const BLOCK_PALETTE = [
 
   // --- NATURAL BLOCKS ---
   { r: 125, g: 125, b: 125, block: 'stone' },
-  { r: 164, g: 148, b: 97,  block: 'sand' },
-  { r: 89,  g: 62,  b: 26,  block: 'dirt' },
+  // Same matching colors as before (so the picture is unchanged), but stable blocks:
+  // 'sand' falls when nothing is below it and 'dirt' turns into grass, so we place
+  // look-alikes that never change. sr/sg/sb = the REAL block color (used for previews).
+  { r: 164, g: 148, b: 97,  sr: 223, sg: 214, sb: 170, block: 'smooth_sandstone' },
+  { r: 89,  g: 62,  b: 26,  sr: 119, sg: 85,  sb: 59,  block: 'coarse_dirt' },
 ];
 
 /**
