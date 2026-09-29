@@ -74,7 +74,8 @@ async function scanWorld(bot, grid, progress) {
     }
     const nameOf = (id) => (bot.registry.blocksByStateId[id] || {}).name || 'unknown';
     const paletteRGB = new Map(BLOCK_PALETTE.map(p => [p.block, [p.sr ?? p.r, p.sg ?? p.g, p.sb ?? p.b]]));
-    paletteRGB.set('smooth_sandstone', [223, 214, 170]);   // old blocks from before the sand fix (repair replaces them)
+    paletteRGB.set('smooth_sandstone', [223, 214, 170]);   // old blocks from earlier versions (repair replaces them)
+    paletteRGB.set('sand', [219, 207, 160]);
 
     const cat = new Uint8Array(W * H);
     const mismatch = new Uint8Array(W * H); // 1 = layer block differs from the image (fixable by repair)
