@@ -4,6 +4,7 @@
 //   Splits into strips to stay manageable
 // ============================================================
 
+const { prepWithOp, checkOp } = require('./opBuilder');
 const config = require('./config');
 const { Vec3 } = require('vec3');
 
@@ -11,22 +12,33 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // Place a block in creative mode using packet + placeBlock
 // No OP required — just creative mode
+let lastSlotBlock = null;
 async function creativePlace(bot, x, y, z, blockName) {
   try {
     const blockId = bot.registry.blocksByName[blockName]?.id;
     if (blockId === undefined) return false;
 
     // Write block into hotbar slot 36 (slot 0) via creative packet
-    bot._client.write('set_creative_slot', {
-      slot: 36,
-      item: { present: true, itemId: blockId, itemCount: 64 }
-    });
-    bot.setQuickBarSlot(0);
-    await sleep(30);
+    if (lastSlotBlock !== blockName) {
+      bot._client.write('set_creative_slot', {
+        slot: 36,
+        item: { present: true, itemId: blockId, itemCount: 64 }
+      });
+      bot.setQuickBarSlot(0);
+      lastSlotBlock = blockName;
+      await sleep(30);
+    }
 
     // Place against the block below (face up = Vec3(0,1,0))
     const refBlock = bot.blockAt(new Vec3(x, y - 1, z));
     if (!refBlock) return false;
+
+    // Spot already occupied (e.g. the stone base) -> replace it
+    const target = bot.blockAt(new Vec3(x, y, z));
+    if (target && target.name === blockName) return true;
+    if (target && target.name !== 'air') {
+      try { await bot.dig(target); } catch (e) { return false; }
+    }
     await bot.placeBlock(refBlock, new Vec3(0, 1, 0));
     return true;
   } catch (e) {
@@ -55,6 +67,14 @@ async function prepareTerrain(bot) {
 
   console.log(`[Terrain] Area: (${x1},${originY},${z1}) → (${x2},${originY},${z2})`);
   console.log(`[Terrain] This will take ~30-40 mins (250k blocks, no OP)`);
+
+  if (config.build.useOp && await checkOp(bot)) {
+    console.log('[Terrain] OP detected — using /fill for base');
+    await prepWithOp(bot, originX, originY, originZ, width, height);
+    try { bot.chat(`/setblock ${spawnX} ${originY + 1} ${spawnZ} minecraft:gold_block`); } catch (e) {}
+    console.log('[Terrain] ✅ Terrain prep complete!');
+    return { originX, originY, originZ, centerX: spawnX, centerY: originY, centerZ: spawnZ };
+  }
 
   // Fly to center above area
   try {
