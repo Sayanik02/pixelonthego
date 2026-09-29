@@ -27,6 +27,8 @@ const { loadProgress, saveProgress, clearBuildProgress, logSkipped, markBanned }
 const { watchForImage, processImage, isImageReady } = require('./imageProcessor');
 const { prepareTerrain, creativePlace } = require('./terrain');
 const { buildWithOp } = require('./opBuilder');
+const { renderPreview, sendToDiscord, PREVIEW_PATH } = require('./preview');
+const { scanWorld, getScanState, WORLD_PATH } = require('./scanner');
 
 // ── State ─────────────────────────────────────────────────────
 let bot               = null;
@@ -72,6 +74,109 @@ function startViewer(botInstance) {
 // ── Status + POV web server ───────────────────────────────────
 const app = express();
 
+// ── Preview picture (drawn from the block grid) ──────────────
+async function makePreview(notify) {
+  if (!blockGrid) blockGrid = await processImage();
+  const path = await renderPreview(blockGrid);
+  console.log('[Preview] Saved ' + path + (process.env.DISCORD_WEBHOOK_URL ? '' : ' (set DISCORD_WEBHOOK_URL to also get it on Discord)'));
+  if (notify) {
+    const ok = await sendToDiscord(path, 'Build ' + Math.floor((progress.totalPlaced / (config.image.width * config.image.height)) * 100) + '% - preview');
+    if (ok) console.log('[Preview] Sent to Discord');
+  }
+  return path;
+}
+
+app.get('/preview.png', async (req, res) => {
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(PREVIEW_PATH) || req.query.refresh) await makePreview(false);
+    res.set('Cache-Control', 'no-store');
+    res.sendFile(require('path').resolve(PREVIEW_PATH));
+  } catch (e) {
+    res.status(500).send('Preview not available yet: ' + e.message);
+  }
+});
+
+// ── World scan (real blocks + obstacles) ─────────────────────
+async function startScan() {
+  const st = getScanState();
+  if (st.status === 'running') return 'Scan already running';
+  if (!bot) return 'Bot is offline';
+  if (isBuilding || isPreparing) return 'Bot is busy building - scan after it finishes (or say pixel stop)';
+  if (progress.originX === null) return 'No build origin yet';
+  try {
+    if (!blockGrid) blockGrid = await processImage();
+  } catch (e) { return 'Image error: ' + e.message; }
+  scanWorld(bot, blockGrid, progress).catch(e => console.log('[Scan] ' + e.message));
+  return 'Scan started';
+}
+
+app.get('/scan', async (req, res) => {
+  const msg = await startScan();
+  console.log('[Scan] ' + msg);
+  res.redirect('/');
+});
+
+app.get('/world.png', (req, res) => {
+  const fs = require('fs');
+  if (!fs.existsSync(WORLD_PATH)) return res.status(404).send('No scan yet - open /scan first');
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(require('path').resolve(WORLD_PATH));
+});
+
+// ── Repair: scan, re-fill only the wrong/missing blocks, scan again ──
+let repairStatus = '';
+async function startRepair() {
+  if (repairStatus && !/^(Done|Failed|Nothing)/.test(repairStatus)) return 'Repair already running';
+  if (getScanState().status === 'running') return 'Scan running - try again in a minute';
+  if (!bot) return 'Bot is offline';
+  if (isBuilding || isPreparing) return 'Bot is busy building';
+  if (progress.originX === null) return 'No build origin yet';
+  (async () => {
+    try {
+      if (!blockGrid) blockGrid = await processImage();
+      const W = config.image.width, H = config.image.height;
+      repairStatus = 'Scanning to find missing blocks...';
+      await scanWorld(bot, blockGrid, progress);
+      let st = getScanState();
+      if (st.status !== 'done') { repairStatus = 'Failed: ' + st.message; return; }
+
+      const mask = st.mismatch;
+      let need = 0;
+      const masked = blockGrid.map((row, r) => row.map((n, c) => (mask[r * W + c] ? (need++, n) : null)));
+      if (need === 0) { repairStatus = 'Nothing to repair - build is correct'; return; }
+
+      repairStatus = 'Repairing ' + need + ' blocks...';
+      console.log('[Repair] ' + repairStatus);
+      let repairing = true;
+      const tmp = { lastRow: 0, lastCol: 0, totalPlaced: 0, originX: progress.originX, originY: progress.originY, originZ: progress.originZ };
+      const res = await buildWithOp(bot, masked, tmp, { isBuilding: () => repairing, save: () => {} });
+      if (res === 'fallback') { repairStatus = 'Failed: bot is not OP'; return; }
+
+      repairStatus = 'Re-scanning to verify...';
+      await scanWorld(bot, blockGrid, progress);
+      st = getScanState();
+      if (st.status === 'done' && st.counts.wrong === 0) {
+        progress.totalPlaced = W * H;
+        saveProgress(progress);
+        repairStatus = 'Done - build verified, 0 wrong blocks';
+      } else {
+        repairStatus = 'Done - ' + (st.counts ? st.counts.wrong : '?') + ' blocks still wrong';
+      }
+      console.log('[Repair] ' + repairStatus);
+    } catch (e) {
+      repairStatus = 'Failed: ' + e.message;
+      console.log('[Repair] ' + e.message);
+    }
+  })();
+  return 'Repair started';
+}
+
+app.get('/repair', async (req, res) => {
+  console.log('[Repair] ' + await startRepair());
+  res.redirect('/');
+});
+
 app.get('/', (req, res) => {
   const total     = config.image.width * config.image.height;
   const pct       = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
@@ -102,6 +207,7 @@ app.get('/', (req, res) => {
   else if (isBuilding && progress.totalPlaced === 0) activity = 'Flying to build area...';
   else if (isBuilding) activity = 'Placing blocks - Row ' + progress.lastRow + ', Col ' + progress.lastCol;
   else if (progress.totalPlaced === total) activity = 'BUILD COMPLETE!';
+  else if (progress.lastRow >= config.image.height) activity = 'Build finished - ' + (total - progress.totalPlaced) + ' blocks unconfirmed (use Scan + repair)';
   else if (progress.totalPlaced > 0) activity = 'Paused at row ' + progress.lastRow;
 
   let targetInfo = '';
@@ -146,6 +252,24 @@ app.get('/', (req, res) => {
   const originZ  = progress.originZ !== null ? progress.originZ : '?';
   const imgStatus  = isImageReady() ? 'YES' : 'NO';
   const prepDone   = progress.prepDone ? 'YES' : 'NO';
+  const sc = getScanState();
+  const repairLine = repairStatus ? 'Repair: ' + repairStatus + '<br>' : '';
+  let scanCard = repairLine + '<a href="/scan">Scan world for obstacles</a> &nbsp;|&nbsp; <a href="/repair">Scan + repair</a>';
+  if (sc.status === 'running') {
+    scanCard = repairLine + 'World scan: ' + sc.message + ' (' + sc.tilesDone + '/' + sc.tilesTotal + ')';
+  } else if (sc.status === 'error') {
+    scanCard = 'World scan failed: ' + sc.message + ' &nbsp;<a href="/scan">retry</a>';
+  } else if (sc.status === 'done' && sc.counts) {
+    const k = sc.counts;
+    const bad = k.tree + k.water + k.lava + k.other;
+    scanCard = '<b>World scan</b> (' + sc.finishedAt.toLocaleTimeString() + ')<br>'
+      + repairLine
+      + (bad === 0 ? 'No obstacles found. ' : 'Obstacles: ' + k.tree + ' tree, ' + k.water + ' water, ' + k.lava + ' lava, ' + k.other + ' other columns. ')
+      + 'Wrong blocks: ' + k.wrong + '. Not loaded: ' + k.unknown + '.<br>'
+      + (sc.samples.length ? 'e.g. ' + sc.samples.slice(0, 4).join('; ') + '<br>' : '')
+      + '<a href="/world.png" target="_blank">Open world map</a> &nbsp;|&nbsp; <a href="/scan">scan again</a>' + (k.wrong > 0 ? ' &nbsp;|&nbsp; <a href="/repair">repair ' + k.wrong + ' wrong blocks</a>' : '');
+  }
+
   const viewerLink = viewerStarted
     ? '<a href="/viewer" target="_blank">Open Live POV Viewer</a>'
     : '<span style="color:#888">POV viewer not available</span>';
@@ -197,6 +321,8 @@ app.get('/', (req, res) => {
     </table></div>
 
     <div class="card">${viewerLink}</div>
+    <div class="card"><a href="/preview.png?refresh=1" target="_blank">Open build preview (PNG)</a></div>
+    <div class="card">${scanCard}</div>
     </body></html>`);
 });
 
@@ -382,6 +508,22 @@ async function onChat(username, message) {
       return;
     }
 
+    if (command === 'repair') {
+      startRepair().then(m => console.log('[Repair] ' + m));
+      return;
+    }
+
+    if (command === 'scan') {
+      startScan().then(m => console.log('[Scan] ' + m));
+      return;
+    }
+
+    if (command === 'preview') {
+      makePreview(true).catch(e => console.log('[Preview] ' + e.message));
+      setTimeout(() => startScan().then(m => console.log('[Scan] ' + m)), 3000);
+      return;
+    }
+
     if (command === 'center') {
       if (progress.originX === null) { console.log('[Console] No origin yet.'); return; }
       const cx = progress.centerX || Math.floor(progress.originX + config.image.width / 2);
@@ -438,6 +580,7 @@ async function startBuilding() {
       isBuilding = false;
       console.log('[Bot] 🎉 BUILD COMPLETE! ' + progress.totalPlaced + ' blocks placed.');
       console.log('[Bot] Use: say pixel center — then /tp to screenshot');
+      makePreview(true).catch(e => console.log('[Preview] ' + e.message));
       return;
     }
     if (result === 'paused') return;
@@ -505,6 +648,7 @@ async function startBuilding() {
     isBuilding = false;
     console.log('[Bot] 🎉 BUILD COMPLETE! ' + progress.totalPlaced + ' blocks placed.');
     console.log('[Bot] Use: say pixel center — then /tp to screenshot');
+    makePreview(true).catch(e => console.log('[Preview] ' + e.message));
   }
 }
 
