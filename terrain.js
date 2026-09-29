@@ -1,24 +1,17 @@
 // ============================================================
 //   TERRAIN PREP
 //   Clears and flattens 500x500 area before building
-//   Uses /fill if OP, falls back to block-by-block if not
 // ============================================================
 
 const config = require('./config');
+const { Vec3 } = require('vec3');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-let isOP = false;
-
-/**
- * Check if bot currently has OP by trying a harmless op-only action
- */
 async function checkOP(bot) {
   return new Promise((resolve) => {
-    // Try running a harmless gamerule check - only works with OP
     bot.chat('/gamerule doFireTick');
-    const timer = setTimeout(() => resolve(false), 2000);
-
+    const timer = setTimeout(() => resolve(false), 3000);
     bot.once('message', (msg) => {
       clearTimeout(timer);
       const text = msg.toString();
@@ -31,24 +24,17 @@ async function checkOP(bot) {
   });
 }
 
-/**
- * Main terrain preparation function
- * Auto-detects spawn point — no coordinates needed!
- * @param {object} bot - mineflayer bot
- */
 async function prepareTerrain(bot) {
   const width = config.image.width;
   const height = config.image.height;
 
-  // ── Auto-detect spawn ──────────────────────────────────────
-  // Use the bot's own spawn point which is set to world spawn
-  const spawnX = Math.floor(bot.spawnPoint?.x ?? bot.entity.position.x);
-  const spawnY = Math.floor(bot.spawnPoint?.y ?? bot.entity.position.y);
-  const spawnZ = Math.floor(bot.spawnPoint?.z ?? bot.entity.position.z);
+  // Auto-detect spawn
+  const spawnX = Math.floor(bot.spawnPoint ? bot.spawnPoint.x : bot.entity.position.x);
+  const spawnY = Math.floor(bot.spawnPoint ? bot.spawnPoint.y : bot.entity.position.y);
+  const spawnZ = Math.floor(bot.spawnPoint ? bot.spawnPoint.z : bot.entity.position.z);
 
   console.log(`[Terrain] Detected spawn at: (${spawnX}, ${spawnY}, ${spawnZ})`);
 
-  // Center the 500x500 area ON the spawn point
   const originX = spawnX - Math.floor(width / 2);
   const originZ = spawnZ - Math.floor(height / 2);
   const originY = spawnY;
@@ -58,107 +44,98 @@ async function prepareTerrain(bot) {
   const z1 = originZ;
   const z2 = originZ + height - 1;
 
-  // Y range: clear from build level up to sky, fill from bedrock to build level
-  const clearYBottom = originY;
-  const clearYTop = 320;
-  const fillYBottom = -64;
-  const fillYTop = originY - 1;
-
   console.log(`[Terrain] Starting terrain prep for ${width}x${height} area`);
   console.log(`[Terrain] Area: (${x1},${originY},${z1}) to (${x2},${originY},${z2})`);
   console.log(`[Terrain] Spawn (center): (${spawnX}, ${spawnY}, ${spawnZ})`);
 
-  // Fly to center of area at safe height
   const centerX = spawnX;
   const centerZ = spawnZ;
 
+  // Fly to center using Vec3
   console.log(`[Terrain] Flying to prep position...`);
   try {
     bot.creative.startFlying();
-    await bot.creative.flyTo({ x: centerX, y: originY + 50, z: centerZ });
+    await bot.creative.flyTo(new Vec3(centerX, originY + 50, centerZ));
+    console.log(`[Terrain] Arrived at prep position`);
   } catch (e) {
-    console.log(`[Terrain] Fly error (continuing anyway): ${e.message}`);
+    console.log(`[Terrain] Fly error (continuing): ${e.message}`);
   }
 
   await sleep(1000);
 
-  // Check if OP
-  isOP = await checkOP(bot);
-  console.log(`[Terrain] OP status: ${isOP ? 'YES - using /fill (fast)' : 'NO - using block-by-block (slower)'}`);
+  // Check OP
+  const isOP = await checkOP(bot);
+  console.log(`[Terrain] OP status: ${isOP ? 'YES - using /fill (fast)' : 'NO - using block-by-block'}`);
 
   if (isOP) {
-    await prepareWithFill(bot, x1, x2, z1, z2, originY, clearYTop, fillYBottom, fillYTop);
+    await prepareWithFill(bot, x1, x2, z1, z2, originY);
   } else {
     await prepareBlockByBlock(bot, x1, x2, z1, z2, originY);
   }
 
-  // Place gold block at center as camera marker
+  // Place gold block at center
   await placeGoldMarker(bot, centerX, originY, centerZ);
 
   console.log(`[Terrain] ✅ Terrain prep complete!`);
-  console.log(`[Terrain] 📍 Center marker (gold block) at: ${centerX}, ${originY}, ${centerZ}`);
-  console.log(`[Terrain] 📸 For screenshot: fly to ${centerX}, ${originY + 400}, ${centerZ} and look straight down`);
+  console.log(`[Terrain] 📍 Gold block center at: ${centerX}, ${originY}, ${centerZ}`);
+  console.log(`[Terrain] 📸 Screenshot: /tp @s ${centerX} ${originY + 400} ${centerZ} then look straight down`);
 
   return { originX, originY, originZ, centerX, centerY: originY, centerZ };
 }
 
-/**
- * Fast prep using /fill commands (requires OP)
- */
-async function prepareWithFill(bot, x1, x2, z1, z2, originY, clearYTop, fillYBottom, fillYTop) {
-  console.log(`[Terrain] Step 1/3: Clearing everything above build level...`);
-  bot.chat(`/fill ${x1} ${originY} ${z1} ${x2} ${clearYTop} ${z2} air`);
-  await sleep(3000);
+async function prepareWithFill(bot, x1, x2, z1, z2, originY) {
+  console.log(`[Terrain] Step 1/3: Clearing above build level...`);
+  bot.chat(`/fill ${x1} ${originY} ${z1} ${x2} 320 ${z2} air`);
+  await sleep(5000);
 
-  console.log(`[Terrain] Step 2/3: Filling holes and water below build level...`);
-  bot.chat(`/fill ${x1} ${fillYBottom} ${z1} ${x2} ${fillYTop} ${z2} stone`);
-  await sleep(3000);
+  console.log(`[Terrain] Step 2/3: Filling holes below build level...`);
+  bot.chat(`/fill ${x1} -64 ${z1} ${x2} ${originY - 1} ${z2} stone`);
+  await sleep(5000);
 
-  console.log(`[Terrain] Step 3/3: Placing flat stone base at build level...`);
+  console.log(`[Terrain] Step 3/3: Placing flat base...`);
   bot.chat(`/fill ${x1} ${originY - 1} ${z1} ${x2} ${originY - 1} ${z2} stone`);
   await sleep(3000);
 
   console.log(`[Terrain] /fill complete!`);
 }
 
-/**
- * Slower block-by-block prep (no OP needed)
- * Only handles the build layer and one layer above
- */
 async function prepareBlockByBlock(bot, x1, x2, z1, z2, originY) {
   const width = x2 - x1 + 1;
   const depth = z2 - z1 + 1;
   let done = 0;
   const total = width * depth;
 
-  console.log(`[Terrain] Block-by-block prep started (${total} blocks) - this will take a while...`);
+  console.log(`[Terrain] Block-by-block prep started (${total} blocks)...`);
 
   for (let x = x1; x <= x2; x++) {
     for (let z = z1; z <= z2; z++) {
-      // Check block at build level
-      const buildBlock = bot.blockAt({ x, y: originY, z });
-      const aboveBlock = bot.blockAt({ x, y: originY + 1, z });
+      try {
+        // Use Vec3 for blockAt
+        const buildPos = new Vec3(x, originY, z);
+        const abovePos = new Vec3(x, originY + 1, z);
+        const belowPos = new Vec3(x, originY - 1, z);
 
-      // Clear block at build level if not air (we need it clear for building)
-      if (buildBlock && buildBlock.name !== 'air') {
-        try {
-          await bot.creative.setBlock({ x, y: originY, z }, 0); // 0 = air
-        } catch (e) { /* ignore */ }
-      }
+        const buildBlock = bot.blockAt(buildPos);
+        const aboveBlock = bot.blockAt(abovePos);
+        const belowBlock = bot.blockAt(belowPos);
 
-      // Clear one block above build level
-      if (aboveBlock && aboveBlock.name !== 'air') {
-        try {
-          await bot.creative.setBlock({ x, y: originY + 1, z }, 0);
-        } catch (e) { /* ignore */ }
-      }
+        // Clear block at build level
+        if (buildBlock && buildBlock.name !== 'air') {
+          await bot.creative.setBlock(buildPos, 0);
+        }
 
-      // Fill if air at build level - 1 (hole/pond)
-      const belowBlock = bot.blockAt({ x, y: originY - 1, z });
-      if (!belowBlock || belowBlock.name === 'air' || belowBlock.name === 'water' || belowBlock.name === 'lava') {
-        try {
-          await bot.creative.setBlock({ x, y: originY - 1, z }, 1); // 1 = stone
-        } catch (e) { /* ignore */ }
+        // Clear one block above
+        if (aboveBlock && aboveBlock.name !== 'air') {
+          await bot.creative.setBlock(abovePos, 0);
+        }
+
+        // Fill hole below
+        if (!belowBlock || belowBlock.name === 'air' ||
+            belowBlock.name === 'water' || belowBlock.name === 'lava') {
+          await bot.creative.setBlock(belowPos, 1); // stone
+        }
+      } catch (e) {
+        // ignore individual block errors, keep going
       }
 
       done++;
@@ -168,20 +145,17 @@ async function prepareBlockByBlock(bot, x1, x2, z1, z2, originY) {
         await sleep(10);
       }
     }
-    await sleep(5); // small breath per column
+    await sleep(5);
   }
 
   console.log(`[Terrain] Block-by-block prep complete!`);
 }
 
-/**
- * Place a gold block at center as screenshot reference
- */
 async function placeGoldMarker(bot, x, y, z) {
   try {
     const goldId = bot.registry.blocksByName['gold_block']?.id;
-    if (goldId) {
-      await bot.creative.setBlock({ x, y, z }, goldId);
+    if (goldId !== undefined) {
+      await bot.creative.setBlock(new Vec3(x, y, z), goldId);
       console.log(`[Terrain] Gold block placed at center (${x}, ${y}, ${z})`);
     }
   } catch (e) {
