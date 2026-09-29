@@ -33,14 +33,13 @@ process.on('uncaughtException', (err) => {
   console.error('[Bot] Uncaught error (ignored):', err.message);
 });
 process.on('unhandledRejection', (err) => {
-  console.error('[Bot] Unhandled rejection (ignored):', err.message || err);
+  console.error('[Bot] Unhandled rejection (ignored):', (err && err.message) || err);
 });
 
 // ── Username rotation ─────────────────────────────────────────
 function getNextUsername() {
   const usernames = config.bot.usernames;
   const banned = new Set(progress.bannedUsernames || []);
-
   for (let i = 0; i < usernames.length; i++) {
     const idx = (currentUsernameIndex + i) % usernames.length;
     if (!banned.has(usernames[idx])) {
@@ -49,8 +48,7 @@ function getNextUsername() {
       return usernames[idx];
     }
   }
-
-  console.log('[Bot] All usernames banned! Resetting ban list...');
+  console.log('[Bot] All usernames banned! Resetting...');
   progress.bannedUsernames = [];
   currentUsernameIndex = 0;
   progress.currentUsernameIndex = 0;
@@ -60,7 +58,6 @@ function getNextUsername() {
 // ── Create bot ────────────────────────────────────────────────
 function createBot() {
   if (isReconnecting) return;
-
   currentUsername = getNextUsername();
   console.log(`\n[Bot] Connecting as "${currentUsername}" to ${config.server.host}:${config.server.port}`);
 
@@ -74,18 +71,14 @@ function createBot() {
 
   bot.once('spawn', onSpawn);
 
-  // ── Chat handler — catches ALL message formats ──
-  bot.on('message', (jsonMsg) => {
+  // ── Use 'chat' event — gives clean plain text, no JSON issues ──
+  bot.on('chat', (username, message) => {
     try {
-      let text = '';
-      if (typeof jsonMsg === 'string') {
-        text = jsonMsg;
-      } else if (jsonMsg && typeof jsonMsg.toString === 'function') {
-        text = jsonMsg.toString();
-      }
-      if (text) handleCommand(text);
+      // Combine so "Server" + "pixel prepare" works
+      const fullText = (username + ' ' + message).toLowerCase();
+      handleCommand(fullText);
     } catch (e) {
-      // silently ignore any chat parse errors
+      // silently ignore
     }
   });
 
@@ -121,18 +114,15 @@ async function onSpawn() {
 
 // ── Command handler ───────────────────────────────────────────
 async function handleCommand(text) {
-  // Strip all color codes and bracket sections, lowercase
-  const clean = text.replace(/§./g, '').replace(/\[.*?\]/g, '').trim().toLowerCase();
+  if (!text.includes('pixel ')) return;
 
-  if (!clean.includes('pixel ')) return;
-
-  // Extract just the pixel command part
-  const match = clean.match(/pixel\s+(\w+)/);
+  const match = text.match(/pixel\s+(\w+)/);
   if (!match) return;
 
   const command = match[1];
-  console.log(`[Console] Command received: pixel ${command}`);
+  console.log(`[Console] Command: pixel ${command}`);
 
+  // ── pixel prepare ──
   if (command === 'prepare') {
     if (isPreparing || isBuilding) {
       console.log('[Console] Bot is busy. Use: say pixel stop');
@@ -154,8 +144,8 @@ async function handleCommand(text) {
       saveProgress(progress);
       console.log('[Bot] ✅ Terrain prep complete!');
       console.log(`[Bot] 📍 Origin: (${result.originX}, ${result.originY}, ${result.originZ})`);
-      console.log(`[Bot] 📍 Center gold block: (${result.centerX}, ${result.originY}, ${result.centerZ})`);
-      console.log(`[Bot] 📸 Screenshot: fly to Y${result.originY + 400} above center`);
+      console.log(`[Bot] 📍 Center: (${result.centerX}, ${result.originY}, ${result.centerZ})`);
+      console.log(`[Bot] 📸 Screenshot: /tp @s ${result.centerX} ${result.originY + 400} ${result.centerZ}`);
       console.log('[Bot] ➡️  Drop image as images/input.png then: say pixel start');
     } catch (e) {
       console.error('[Bot] Prep error:', e.message);
@@ -164,6 +154,7 @@ async function handleCommand(text) {
     return;
   }
 
+  // ── pixel start ──
   if (command === 'start') {
     if (isBuilding) { console.log('[Console] Already building!'); return; }
     if (!progress.originX && !progress.prepDone) { console.log('[Console] Run: say pixel prepare first!'); return; }
@@ -174,19 +165,22 @@ async function handleCommand(text) {
     return;
   }
 
+  // ── pixel resume ──
   if (command === 'resume') {
     if (isBuilding) { console.log('[Console] Already building!'); return; }
     await resumeBuild();
     return;
   }
 
+  // ── pixel stop ──
   if (command === 'stop') {
     isBuilding = false;
     isPreparing = false;
-    console.log('[Bot] Build stopped.');
+    console.log('[Bot] Stopped.');
     return;
   }
 
+  // ── pixel status ──
   if (command === 'status') {
     const total = config.image.width * config.image.height;
     const pct = ((progress.totalPlaced / total) * 100).toFixed(1);
@@ -195,16 +189,17 @@ async function handleCommand(text) {
     return;
   }
 
+  // ── pixel center ──
   if (command === 'center') {
     if (!progress.originX) { console.log('[Console] No origin set yet.'); return; }
     const cx = progress.centerX || Math.floor(progress.originX + config.image.width / 2);
     const cz = progress.centerZ || Math.floor(progress.originZ + config.image.height / 2);
     console.log(`[Bot] 📍 Center: ${cx}, ${progress.originY}, ${cz}`);
-    console.log(`[Bot] 📸 Fly to: /tp @s ${cx} ${progress.originY + 400} ${cz} then look straight down`);
+    console.log(`[Bot] 📸 /tp @s ${cx} ${progress.originY + 400} ${cz} then look straight down`);
     return;
   }
 
-  console.log(`[Console] Unknown: pixel ${command} | Try: prepare / start / stop / resume / status / center`);
+  console.log(`[Console] Unknown: pixel ${command} | Try: prepare/start/stop/resume/status/center`);
 }
 
 // ── Resume build ──────────────────────────────────────────────
@@ -214,7 +209,6 @@ async function resumeBuild() {
     return;
   }
   console.log(`[Bot] Resuming from row ${progress.lastRow}, col ${progress.lastCol}...`);
-
   if (progress.originX !== null) {
     try {
       bot.creative.startFlying();
@@ -343,7 +337,7 @@ async function onKicked(reason) {
   scheduleReconnect();
 }
 
-// ── Reconnect ─────────────────────────────────────────────────
+// ── Reconnect — only ONE instance at a time ───────────────────
 function scheduleReconnect() {
   if (isReconnecting) return;
   isReconnecting = true;
@@ -369,7 +363,7 @@ function scheduleReconnect() {
   }, delay);
 }
 
-// ── Watch for image ───────────────────────────────────────────
+// ── Watch for image drop ──────────────────────────────────────
 watchForImage(() => {
   console.log('\n[Bot] 🖼️  Image detected! Use: say pixel start');
 });
