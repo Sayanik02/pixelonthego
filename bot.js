@@ -403,7 +403,7 @@ async function onEnd() {
   await scheduleReconnect();
 }
 
-async function scheduleReconnect() {{
+async function scheduleReconnect() {
   // Kill existing connection first
   if (bot) {
     try { bot.quit(); } catch(e) {}
