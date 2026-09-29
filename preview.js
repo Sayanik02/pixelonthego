@@ -11,7 +11,7 @@ const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || '.';
 const PREVIEW_PATH = `${VOLUME}/preview.png`;
 
 async function renderPreview(grid, scale = 2) {
-  const colors = new Map(BLOCK_PALETTE.map(p => [p.block, [p.r, p.g, p.b]]));
+  const colors = new Map(BLOCK_PALETTE.map(p => [p.block, [p.sr ?? p.r, p.sg ?? p.g, p.sb ?? p.b]]));
   const H = grid.length, W = grid[0].length;
   const img = new Jimp(W * scale, H * scale, 0x1a1a2eff);
 
