@@ -66,9 +66,10 @@ function createBot() {
   bot.once('spawn', onSpawn);
   bot.on('message', (jsonMsg) => {
   try {
-    onMessage(jsonMsg);
+    const text = jsonMsg.toString();
+    onMessage(text);
   } catch(e) {
-    // ignore chat parse errors, keep bot alive
+    console.log('[Bot] Chat parse error (ignored):', e.message);
   }
 });
   bot.on('kicked', onKicked);
@@ -96,8 +97,9 @@ async function onSpawn() {
 }
 
 // ── Console command handler ───────────────────────────────────
-async function onMessage(jsonMsg) {
-  const msg = jsonMsg.toString().trim();
+async function onMessage(msg) {
+  if (typeof msg !== 'string') return;
+  msg = msg.trim();
 
   // Detect console commands — Aternos console messages appear as server messages
   // Format: "[Console] pixel prepare 100 64 200"  OR just "pixel prepare 100 64 200"
