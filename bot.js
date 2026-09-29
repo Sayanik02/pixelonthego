@@ -26,6 +26,7 @@ const config     = require('./config');
 const { loadProgress, saveProgress, clearBuildProgress, logSkipped, markBanned } = require('./progressManager');
 const { watchForImage, processImage, isImageReady } = require('./imageProcessor');
 const { prepareTerrain, creativePlace } = require('./terrain');
+const { buildWithOp } = require('./opBuilder');
 
 // ── State ─────────────────────────────────────────────────────
 let bot               = null;
@@ -38,6 +39,7 @@ let reconnectAttempts = 0;
 let currentUsername   = null;
 let currentUsernameIndex = progress.currentUsernameIndex || 0;
 let buildStartTime    = null;
+const rateSamples     = [];
 let viewerStarted     = false;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -110,20 +112,33 @@ app.get('/', (req, res) => {
     targetInfo = '(' + tx + ', ' + ty + ', ' + tz + ')';
   }
 
-  let eta = '';
-  if (isBuilding && buildStartTime && progress.totalPlaced > 0) {
-    const elapsed   = (Date.now() - buildStartTime) / 1000;
-    const rate      = progress.totalPlaced / elapsed;
-    const remaining = (total - progress.totalPlaced) / rate;
-    const hrs  = Math.floor(remaining / 3600);
-    const mins = Math.floor((remaining % 3600) / 60);
-    eta = hrs + 'h ' + mins + 'm remaining';
+  // Rolling rate over the last 60s (avoids lifetime-average blowups & resume skew)
+  const nowMs = Date.now();
+  if (isBuilding) {
+    rateSamples.push({ t: nowMs, n: progress.totalPlaced });
+    while (rateSamples.length && nowMs - rateSamples[0].t > 60000) rateSamples.shift();
+  } else {
+    rateSamples.length = 0;
   }
 
+  let eta = '';
   let bps = '';
-  if (isBuilding && buildStartTime && progress.totalPlaced > 0) {
-    const elapsed = (Date.now() - buildStartTime) / 1000;
-    bps = (progress.totalPlaced / elapsed).toFixed(1) + ' blocks/s';
+  if (isBuilding && rateSamples.length >= 2) {
+    const first = rateSamples[0];
+    const last  = rateSamples[rateSamples.length - 1];
+    const dt    = (last.t - first.t) / 1000;
+    const dn    = last.n - first.n;
+    if (dt >= 10 && dn >= 5) {
+      const rate = dn / dt;
+      bps = rate.toFixed(1) + ' blocks/s';
+      const remaining = (total - progress.totalPlaced) / rate;
+      const days = Math.floor(remaining / 86400);
+      const hrs  = Math.floor((remaining % 86400) / 3600);
+      const mins = Math.floor((remaining % 3600) / 60);
+      eta = (days > 0 ? days + 'd ' : '') + hrs + 'h ' + mins + 'm remaining';
+    } else {
+      eta = 'calculating...';
+    }
   }
 
   const originX  = progress.originX !== null ? progress.originX : '?';
@@ -413,6 +428,22 @@ async function startBuilding() {
   const originZ = progress.originZ;
   let blocksSinceSave = 0;
 
+  // ── Fast path: OP + /fill ──
+  if (config.build.useOp) {
+    const result = await buildWithOp(bot, blockGrid, progress, {
+      isBuilding: () => isBuilding,
+      save: () => saveProgress(progress),
+    });
+    if (result === 'done') {
+      isBuilding = false;
+      console.log('[Bot] 🎉 BUILD COMPLETE! ' + progress.totalPlaced + ' blocks placed.');
+      console.log('[Bot] Use: say pixel center — then /tp to screenshot');
+      return;
+    }
+    if (result === 'paused') return;
+    // 'fallback' → continue with the slow legacy loop below
+  }
+
   try { bot.creative.startFlying(); } catch (e) {}
 
   outer:
@@ -422,17 +453,24 @@ async function startBuilding() {
 
       const blockName = blockGrid[row][col];
       if (!blockName) continue;
+      progress.lastRow = row;
+      progress.lastCol = col;
 
       const x = originX + col;
       const y = originY;
       const z = originZ + row;
 
       try {
-        // flyTo with a timeout so it never hangs forever
-        await Promise.race([
-          bot.creative.flyTo(new Vec3(x, y + config.build.flyHeight, z)),
-          sleep(3000), // give up after 3s and place anyway
-        ]);
+        // only fly when out of reach (placing reach is ~5 blocks)
+        const p = bot.entity.position;
+        const far = Math.abs(p.x - x) > 4 || Math.abs(p.z - z) > 4 || Math.abs(p.y - (y + config.build.flyHeight)) > 4;
+        if (far) {
+          // fly a few blocks ahead along the row so the next ~6 blocks need no flying
+          await Promise.race([
+            bot.creative.flyTo(new Vec3(x + 3, y + config.build.flyHeight, z)),
+            sleep(3000),
+          ]);
+        }
       } catch (e) {}
 
       const placed = await creativePlace(bot, x, y, z, blockName);
