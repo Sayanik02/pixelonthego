@@ -77,6 +77,7 @@ async function scanWorld(bot, grid, progress) {
     const rgb = new Uint8Array(W * H * 3);
     const counts = { ok: 0, tree: 0, water: 0, lava: 0, other: 0, plant: 0, wrong: 0, unknown: 0 };
     const byName = {};
+    const pairs = {};   // 'expected -> found' counts, for diagnosing wrong blocks
 
     const tilesX = Math.ceil(W / TILE), tilesZ = Math.ceil(H / TILE);
     state.tilesTotal = tilesX * tilesZ;
@@ -128,7 +129,11 @@ async function scanWorld(bot, grid, progress) {
             }
 
             const expected = grid[r][c];
-            if (expected && layerName !== expected) mismatch[idx] = 1;
+            if (expected && layerName !== expected) {
+              mismatch[idx] = 1;
+              const key = expected + ' -> ' + layerName;
+              pairs[key] = (pairs[key] || 0) + 1;
+            }
             const col = paletteRGB.get(layerName) || [120, 120, 120];
             rgb[idx * 3] = col[0]; rgb[idx * 3 + 1] = col[1]; rgb[idx * 3 + 2] = col[2];
 
@@ -199,6 +204,7 @@ async function scanWorld(bot, grid, progress) {
     await img.writeAsync(WORLD_PATH);
 
     state.counts = counts;
+    state.wrongPairs = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 6);
     state.mismatch = mismatch;
     state.W = W; state.H = H;
     state.byName = byName;
@@ -206,6 +212,7 @@ async function scanWorld(bot, grid, progress) {
     state.status = 'done';
     state.message = 'Scan complete';
     console.log('[Scan] Done:', JSON.stringify(counts));
+    if (state.wrongPairs.length) console.log('[Scan] Wrong blocks (expected -> found): ' + state.wrongPairs.map(p => p[0] + ' x' + p[1]).join(' | '));
     if (state.samples.length) console.log('[Scan] Obstacles: ' + state.samples.join(' | '));
   } catch (e) {
     state.status = 'error';
