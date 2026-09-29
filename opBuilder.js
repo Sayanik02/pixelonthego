@@ -125,18 +125,29 @@ async function buildWithOp(bot, grid, progress, ctl) {
   bot.on('messagestr', onMsg);
 
   try {
-    for (let r0 = progress.lastRow; r0 < H; r0 += bandRows) {
+    // Saved progress can lie (e.g. from an old slow run that failed). If far fewer
+    // blocks are recorded than the rows claimed done, start again from row 0.
+    let startRow = progress.lastRow;
+    if (startRow > 0 && progress.totalPlaced < startRow * W * 0.9) {
+      console.log(`[OP] Saved progress looks wrong (row ${startRow} but only ${progress.totalPlaced} blocks) - restarting from row 0.`);
+      startRow = 0;
+      progress.totalPlaced = 0;
+    }
+
+    for (let r0 = startRow; r0 < H; r0 += bandRows) {
       if (!ctl.isBuilding()) { console.log('[OP] Paused.'); return 'paused'; }
       const r1 = Math.min(r0 + bandRows, H);
 
       const fx1 = originX, fx2 = originX + W - 1;
       const fz1 = originZ + r0, fz2 = originZ + r1 - 1;
 
+      const rects = bandRects(grid, r0, r1);
+      if (rects.length === 0) { progress.lastRow = r1; continue; }
+
       // Force-load this band's chunks (bot stays at the start area)
       bot.chat(`/forceload add ${fx1} ${fz1} ${fx2} ${fz2}`);
       await sleep(3500); // let chunks load
 
-      const rects = bandRects(grid, r0, r1);
       let area = 0;
       for (const q of rects) area += q.w * q.h;
 
