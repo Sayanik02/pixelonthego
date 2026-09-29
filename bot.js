@@ -71,23 +71,44 @@ function startViewer(botInstance) {
 const app = express();
 
 app.get('/', (req, res) => {
-  const total       = config.image.width * config.image.height;
-  const pct         = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
-  const botStatus   = bot ? '🟢 Online' : '🔴 Offline';
-  const botClass    = bot ? 'online' : 'offline';
-  const buildStatus = isBuilding ? '✅ Yes' : '❌ No';
-  const prepStatus  = isPreparing ? '✅ Yes' : '❌ No';
-  const imgStatus   = isImageReady() ? '✅' : '❌';
-  const prepDone    = progress.prepDone ? '✅' : '❌';
-  const username    = currentUsername || 'none';
-  const originX     = progress.originX !== null ? progress.originX : '?';
-  const originY     = progress.originY !== null ? progress.originY : '?';
-  const originZ     = progress.originZ !== null ? progress.originZ : '?';
-  const placed      = progress.totalPlaced.toLocaleString();
-  const totalStr    = total.toLocaleString();
-  const viewerLink  = viewerStarted
-    ? '<a href="/viewer" target="_blank">🎮 Open Live POV Viewer →</a>'
-    : '<span style="color:#888">POV viewer not available</span>';
+  const total     = config.image.width * config.image.height;
+  const pct       = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
+  const botOnline = bot ? 'Online' : 'Offline';
+  const botClass  = bot ? 'online' : 'offline';
+  const username  = currentUsername || 'none';
+  const placed    = progress.totalPlaced.toLocaleString();
+  const totalStr  = total.toLocaleString();
+
+  let posX = '?', posY = '?', posZ = '?';
+  if (bot && bot.entity) {
+    posX = Math.floor(bot.entity.position.x);
+    posY = Math.floor(bot.entity.position.y);
+    posZ = Math.floor(bot.entity.position.z);
+  }
+
+  let distInfo = '';
+  if (bot && bot.entity && progress.originX !== null) {
+    const dx = Math.floor(bot.entity.position.x) - progress.originX;
+    const dz = Math.floor(bot.entity.position.z) - progress.originZ;
+    const dist = Math.floor(Math.sqrt(dx*dx + dz*dz));
+    distInfo = dist < 5 ? 'AT BUILD AREA' : dist + ' blocks away from origin';
+  }
+
+  let activity = 'Idle';
+  if (!bot) activity = 'DISCONNECTED - reconnecting...';
+  else if (isPreparing) activity = 'Flattening terrain...';
+  else if (isBuilding && progress.totalPlaced === 0) activity = 'Flying to build area...';
+  else if (isBuilding) activity = 'Placing blocks - Row ' + progress.lastRow + ', Col ' + progress.lastCol;
+  else if (progress.totalPlaced === total) activity = 'BUILD COMPLETE!';
+  else if (progress.totalPlaced > 0) activity = 'Paused at row ' + progress.lastRow;
+
+  let targetInfo = '';
+  if (isBuilding && progress.originX !== null) {
+    const tx = progress.originX + progress.lastCol;
+    const ty = progress.originY;
+    const tz = progress.originZ + progress.lastRow;
+    targetInfo = '(' + tx + ', ' + ty + ', ' + tz + ')';
+  }
 
   let eta = '';
   if (isBuilding && buildStartTime && progress.totalPlaced > 0) {
@@ -96,38 +117,72 @@ app.get('/', (req, res) => {
     const remaining = (total - progress.totalPlaced) / rate;
     const hrs  = Math.floor(remaining / 3600);
     const mins = Math.floor((remaining % 3600) / 60);
-    eta = '<br><small>⏱ ' + hrs + 'h ' + mins + 'm remaining</small>';
+    eta = hrs + 'h ' + mins + 'm remaining';
   }
 
-  res.send('<!DOCTYPE html><html><head><title>PixelBot Status</title>' +
-    '<meta http-equiv="refresh" content="10">' +
-    '<style>' +
-    'body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:30px;max-width:700px;margin:auto}' +
-    'h1{color:#00d4ff}' +
-    '.stat{background:#16213e;padding:15px;border-radius:8px;margin:10px 0;line-height:1.8}' +
-    '.bar{background:#0f3460;border-radius:4px;height:24px;margin-top:8px}' +
-    '.fill{background:#00d4ff;border-radius:4px;height:24px;width:' + pct + '%}' +
-    '.online{color:#00ff88}.offline{color:#ff4444}' +
-    'a{color:#00d4ff}' +
-    '</style></head><body>' +
-    '<h1>🎨 Minecraft Pixel Art Bot</h1>' +
-    '<div class="stat">' +
-    '<b>Bot:</b> <span class="' + botClass + '">' + botStatus + '</span> — ' + username + '<br>' +
-    '<b>Building:</b> ' + buildStatus + ' &nbsp;|&nbsp; <b>Preparing:</b> ' + prepStatus +
-    '</div>' +
-    '<div class="stat">' +
-    '<b>Progress:</b> ' + placed + ' / ' + totalStr + ' blocks (' + pct + '%)<br>' +
-    '<div class="bar"><div class="fill"></div></div>' + eta +
-    '</div>' +
-    '<div class="stat">' +
-    '<b>Row:</b> ' + progress.lastRow + ' / ' + config.image.height + ' &nbsp;|&nbsp; ' +
-    '<b>Col:</b> ' + progress.lastCol + ' / ' + config.image.width + '<br>' +
-    '<b>Origin:</b> (' + originX + ', ' + originY + ', ' + originZ + ')<br>' +
-    '<b>Prep done:</b> ' + prepDone + ' &nbsp;|&nbsp; <b>Image ready:</b> ' + imgStatus +
-    '</div>' +
-    '<div class="stat">' + viewerLink + '</div>' +
-    '<div class="stat"><small>Auto-refreshes every 10s</small></div>' +
-    '</body></html>');
+  let bps = '';
+  if (isBuilding && buildStartTime && progress.totalPlaced > 0) {
+    const elapsed = (Date.now() - buildStartTime) / 1000;
+    bps = (progress.totalPlaced / elapsed).toFixed(1) + ' blocks/s';
+  }
+
+  const originX  = progress.originX !== null ? progress.originX : '?';
+  const originY  = progress.originY !== null ? progress.originY : '?';
+  const originZ  = progress.originZ !== null ? progress.originZ : '?';
+  const imgStatus  = isImageReady() ? 'YES' : 'NO';
+  const prepDone   = progress.prepDone ? 'YES' : 'NO';
+  const viewerLink = viewerStarted
+    ? '<a href="/viewer" target="_blank">Open Live POV Viewer</a>'
+    : '<span style="color:#888">POV viewer not available</span>';
+
+  res.send(`<!DOCTYPE html><html><head><title>PixelBot Status</title>
+    <meta http-equiv="refresh" content="5">
+    <style>
+      body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:24px;max-width:750px;margin:auto}
+      h1{color:#00d4ff;margin-bottom:2px}
+      .ts{color:#888;font-size:12px;margin-bottom:14px}
+      .card{background:#16213e;padding:14px 18px;border-radius:8px;margin:10px 0;line-height:1.9}
+      .activity{background:#0d2137;border-left:4px solid #00d4ff;padding:12px 16px;border-radius:0 8px 8px 0;margin:10px 0;font-size:15px;color:#00d4ff;font-weight:bold}
+      .bar-wrap{background:#0f3460;border-radius:4px;height:20px;margin:8px 0 4px;position:relative;overflow:hidden}
+      .bar-fill{background:#00d4ff;border-radius:4px;height:20px;width:${pct}%}
+      .bar-pct{position:absolute;right:8px;top:2px;font-size:12px;color:#fff}
+      .online{color:#00ff88}.offline{color:#ff4444}
+      .coord{color:#ffd700}
+      .good{color:#00ff88}.warn{color:#ff9900}
+      table{width:100%;border-collapse:collapse}
+      td{padding:2px 8px;vertical-align:top}
+      td:first-child{color:#888;width:150px;white-space:nowrap}
+      a{color:#00d4ff}
+    </style></head><body>
+    <h1>Minecraft Pixel Art Bot</h1>
+    <div class="ts">Last updated: ${new Date().toLocaleTimeString()}</div>
+
+    <div class="activity">${activity}</div>
+
+    <div class="card"><table>
+      <tr><td>Bot status</td><td><span class="${botClass}">${botOnline}</span> &mdash; ${username}</td></tr>
+      <tr><td>Bot position</td><td class="coord">(${posX}, ${posY}, ${posZ})</td></tr>
+      <tr><td>Build origin</td><td class="coord">(${originX}, ${originY}, ${originZ})</td></tr>
+      ${distInfo ? '<tr><td>Distance</td><td class="' + (distInfo.startsWith('AT') ? 'good' : 'warn') + '">' + distInfo + '</td></tr>' : ''}
+      ${targetInfo ? '<tr><td>Target block</td><td class="coord">' + targetInfo + '</td></tr>' : ''}
+    </table></div>
+
+    <div class="card">
+      <b>Progress:</b> ${placed} / ${totalStr} blocks
+      ${bps ? '&nbsp;&mdash;&nbsp;' + bps : ''}
+      ${eta ? '&nbsp;&mdash;&nbsp;' + eta : ''}
+      <div class="bar-wrap"><div class="bar-fill"></div><span class="bar-pct">${pct}%</span></div>
+      Row ${progress.lastRow} / ${config.image.height} &nbsp;|&nbsp; Col ${progress.lastCol} / ${config.image.width}
+    </div>
+
+    <div class="card"><table>
+      <tr><td>Prep done</td><td>${prepDone}</td></tr>
+      <tr><td>Image ready</td><td>${imgStatus}</td></tr>
+      <tr><td>Reconnects</td><td>${reconnectAttempts}</td></tr>
+    </table></div>
+
+    <div class="card">${viewerLink}</div>
+    </body></html>`);
 });
 
 // Proxy POV viewer (prismarine-viewer runs on 3007)
