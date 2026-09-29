@@ -266,6 +266,7 @@ app.get('/', (req, res) => {
       + repairLine
       + (bad === 0 ? 'No obstacles found. ' : 'Obstacles: ' + k.tree + ' tree, ' + k.water + ' water, ' + k.lava + ' lava, ' + k.other + ' other columns. ')
       + 'Wrong blocks: ' + k.wrong + '. Not loaded: ' + k.unknown + '.<br>'
+      + (sc.wrongPairs && sc.wrongPairs.length ? 'Wrong (expected -> found): ' + sc.wrongPairs.slice(0, 4).map(p => p[0] + ' x' + p[1]).join('; ') + '<br>' : '')
       + (sc.samples.length ? 'e.g. ' + sc.samples.slice(0, 4).join('; ') + '<br>' : '')
       + '<a href="/world.png" target="_blank">Open world map</a> &nbsp;|&nbsp; <a href="/scan">scan again</a>' + (k.wrong > 0 ? ' &nbsp;|&nbsp; <a href="/repair">repair ' + k.wrong + ' wrong blocks</a>' : '');
   }
