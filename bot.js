@@ -76,6 +76,10 @@ function createBot() {
   bot.on('error', onError);
 process.on('uncaughtException', (err) => {
   console.error('[Bot] Uncaught error (continuing):', err.message);
+  if (bot) {
+    try { bot.quit(); } catch(e) {}
+    bot = null;
+  }
 });
   bot.on('end', onEnd);
 }
@@ -399,7 +403,12 @@ async function onEnd() {
   await scheduleReconnect();
 }
 
-async function scheduleReconnect() {
+async function scheduleReconnect() {{
+  // Kill existing connection first
+  if (bot) {
+    try { bot.quit(); } catch(e) {}
+    bot = null;
+  }
   if (reconnectAttempts >= config.bot.maxReconnectAttempts) {
     console.error('[Bot] Max reconnect attempts reached.');
     return;
