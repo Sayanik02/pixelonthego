@@ -64,9 +64,18 @@ function createBot() {
   });
 
   bot.once('spawn', onSpawn);
-  bot.on('message', onMessage);
+  bot.on('message', (jsonMsg) => {
+  try {
+    onMessage(jsonMsg);
+  } catch(e) {
+    // ignore chat parse errors, keep bot alive
+  }
+});
   bot.on('kicked', onKicked);
   bot.on('error', onError);
+process.on('uncaughtException', (err) => {
+  console.error('[Bot] Uncaught error (continuing):', err.message);
+});
   bot.on('end', onEnd);
 }
 
