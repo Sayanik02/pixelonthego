@@ -60,10 +60,11 @@ const BLOCK_PALETTE = [
 
   // --- NATURAL BLOCKS ---
   { r: 125, g: 125, b: 125, block: 'stone' },
-  // Same matching colors as before (so the picture is unchanged), but stable blocks:
-  // 'sand' falls when nothing is below it and 'dirt' turns into grass, so we place
-  // look-alikes that never change. sr/sg/sb = the REAL block color (used for previews).
-  { r: 164, g: 148, b: 97,  sr: 223, sg: 214, sb: 170, block: 'smooth_sandstone' },
+  // 'sand' falls if there is nothing under it, so the builder (opBuilder.js) always lays a
+  // solid stone layer one block DOWN before placing art. That lets us use REAL sand again.
+  // 'dirt' can turn into grass, so we use coarse_dirt (never changes).
+  // sr/sg/sb = the REAL block color (used for previews and scan maps).
+  { r: 164, g: 148, b: 97,  sr: 219, sg: 207, sb: 160, block: 'sand' },
   { r: 89,  g: 62,  b: 26,  sr: 119, sg: 85,  sb: 59,  block: 'coarse_dirt' },
 ];
 
