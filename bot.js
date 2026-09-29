@@ -551,6 +551,41 @@ async function onChat(username, message) {
       return;
     }
 
+    if (command === 'fixgrass') {
+      if (!progress.originX) { console.log('[Bot] No origin set. Run prepare first.'); return; }
+      console.log('[Bot] Fixing grass -> dirt in build area...');
+      isBuilding = false;
+      isPreparing = true;
+      (async () => {
+        const { creativePlace } = require('./terrain');
+        const ox = progress.originX;
+        const oy = progress.originY;
+        const oz = progress.originZ;
+        const w  = config.image.width;
+        const h  = config.image.height;
+        let fixed = 0;
+        for (let row = 0; row < h; row++) {
+          for (let col = 0; col < w; col++) {
+            const x = ox + col;
+            const z = oz + row;
+            // Check one below build level (the base layer)
+            for (let dy = -1; dy <= 0; dy++) {
+              const blk = bot.blockAt(new Vec3(x, oy + dy, z));
+              if (blk && (blk.name === 'grass_block' || blk.name === 'grass')) {
+                await creativePlace(bot, x, oy + dy, z, 'dirt');
+                fixed++;
+              }
+            }
+            if (col % 50 === 0) await sleep(20); // avoid flooding
+          }
+          if (row % 10 === 0) console.log('[FixGrass] Row ' + row + '/'+h+' — fixed '+fixed+' blocks so far');
+        }
+        isPreparing = false;
+        console.log('[FixGrass] Done! Fixed ' + fixed + ' grass->dirt blocks.');
+      })();
+      return;
+    }
+
     console.log('[Console] Unknown: pixel ' + command);
   } catch (e) {}
 }
