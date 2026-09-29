@@ -368,7 +368,9 @@ async function startBuilding() {
       const z = originZ + row;
 
       try {
-        await bot.creative.flyTo(new Vec3(x, y + config.build.flyHeight, z));
+        // flyTo can hang indefinitely; use chat teleport instead
+        bot.chat(`/tp ${currentUsername} ${x} ${y + config.build.flyHeight} ${z}`);
+        await sleep(80); // small delay to let the tp land
       } catch (e) {}
 
       const placed = await creativePlace(bot, x, y, z, blockName);
