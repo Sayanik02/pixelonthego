@@ -58,7 +58,12 @@ function startViewer(botInstance) {
     viewerStarted = true;
     console.log('[Viewer] 🎮 Bot POV live at /viewer on your Railway URL');
   } catch (e) {
-    console.log('[Viewer] Could not start viewer: ' + e.message);
+    if (e.code === 'EADDRINUSE') {
+      viewerStarted = true;
+      console.log('[Viewer] Reusing existing viewer on port 3007');
+    } else {
+      console.log('[Viewer] Could not start viewer: ' + e.message);
+    }
   }
 }
 
@@ -368,9 +373,11 @@ async function startBuilding() {
       const z = originZ + row;
 
       try {
-        // flyTo can hang indefinitely; use chat teleport instead
-        bot.chat(`/tp ${currentUsername} ${x} ${y + config.build.flyHeight} ${z}`);
-        await sleep(80); // small delay to let the tp land
+        // flyTo with a timeout so it never hangs forever
+        await Promise.race([
+          bot.creative.flyTo(new Vec3(x, y + config.build.flyHeight, z)),
+          sleep(3000), // give up after 3s and place anyway
+        ]);
       } catch (e) {}
 
       const placed = await creativePlace(bot, x, y, z, blockName);
@@ -423,7 +430,7 @@ async function onKicked(reason) {
 function scheduleReconnect() {
   if (isReconnecting) return;
   isReconnecting = true;
-  viewerStarted  = false;
+  // Do NOT reset viewerStarted — port 3007 stays bound between reconnects
 
   try { if (bot) bot.quit(); } catch (e) {}
   bot = null;
