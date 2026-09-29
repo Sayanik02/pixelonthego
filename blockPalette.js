@@ -60,11 +60,11 @@ const BLOCK_PALETTE = [
 
   // --- NATURAL BLOCKS ---
   { r: 125, g: 125, b: 125, block: 'stone' },
-  // 'sand' falls if there is nothing under it, so the builder (opBuilder.js) always lays a
-  // solid stone layer one block DOWN before placing art. That lets us use REAL sand again.
-  // 'dirt' can turn into grass, so we use coarse_dirt (never changes).
-  // sr/sg/sb = the REAL block color (used for previews and scan maps).
-  { r: 164, g: 148, b: 97,  sr: 219, sg: 207, sb: 160, block: 'sand' },
+  // Pale skin-highlight pixels (the tan the photo's lighting makes on the face) are built with
+  // white_terracotta - the same peach as the chest - so skin is one even tone with no yellow patches.
+  // (No sand is placed any more, so nothing can fall.)  sr/sg/sb = the REAL block color, used for previews.
+  { r: 164, g: 148, b: 97,  sr: 209, sg: 177, sb: 161, block: 'white_terracotta' },
+  // 'dirt' can turn into grass, so we use coarse_dirt (never changes)
   { r: 89,  g: 62,  b: 26,  sr: 119, sg: 85,  sb: 59,  block: 'coarse_dirt' },
 ];
 
