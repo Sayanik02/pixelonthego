@@ -70,7 +70,7 @@ async function scanWorld(bot, grid, progress) {
       if (b) for (let s = b.minStateId; s <= b.maxStateId; s++) airIds.add(s);
     }
     const nameOf = (id) => (bot.registry.blocksByStateId[id] || {}).name || 'unknown';
-    const paletteRGB = new Map(BLOCK_PALETTE.map(p => [p.block, [p.r, p.g, p.b]]));
+    const paletteRGB = new Map(BLOCK_PALETTE.map(p => [p.block, [p.sr ?? p.r, p.sg ?? p.g, p.sb ?? p.b]]));
 
     const cat = new Uint8Array(W * H);
     const mismatch = new Uint8Array(W * H); // 1 = layer block differs from the image (fixable by repair)
