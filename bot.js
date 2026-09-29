@@ -10,6 +10,7 @@
 // ============================================================
 
 const mineflayer = require('mineflayer');
+const { Vec3 } = require('vec3');
 const config = require('./config');
 const { loadProgress, saveProgress, clearBuildProgress, logSkipped, markBanned } = require('./progressManager');
 const { watchForImage, processImage, isImageReady } = require('./imageProcessor');
@@ -212,11 +213,11 @@ async function resumeBuild() {
   if (progress.originX !== null) {
     try {
       bot.creative.startFlying();
-      await bot.creative.flyTo({
-        x: progress.originX + progress.lastCol,
-        y: progress.originY + config.build.flyHeight,
-        z: progress.originZ + progress.lastRow,
-      });
+      await bot.creative.flyTo(new Vec3(
+        progress.originX + progress.lastCol,
+        progress.originY + config.build.flyHeight,
+        progress.originZ + progress.lastRow
+      ));
     } catch (e) {
       console.log('[Bot] Fly error (continuing):', e.message);
     }
@@ -260,7 +261,7 @@ async function startBuilding() {
       const z = progress.originZ + row;
 
       try {
-        await bot.creative.flyTo({ x, y: y + config.build.flyHeight, z });
+        await bot.creative.flyTo(new Vec3(x, y + config.build.flyHeight, z));
       } catch (e) {}
 
       const placed = await placeWithRetry(x, y, z, blockName);
@@ -295,9 +296,10 @@ async function startBuilding() {
 
 // ── Place block with retry ────────────────────────────────────
 async function placeWithRetry(x, y, z, blockName) {
+  const pos = new Vec3(x, y, z);
   for (let attempt = 1; attempt <= config.build.retryAttempts; attempt++) {
     try {
-      const existing = bot.blockAt({ x, y, z });
+      const existing = bot.blockAt(pos);
       if (existing && existing.name !== 'air' && existing.name !== blockName) {
         if (attempt < config.build.retryAttempts) {
           console.log(`[Bot] Obstacle at (${x},${y},${z}): ${existing.name} | Retry ${attempt}/${config.build.retryAttempts}`);
@@ -310,7 +312,7 @@ async function placeWithRetry(x, y, z, blockName) {
       }
       const blockId = bot.registry.blocksByName[blockName]?.id;
       if (blockId === undefined) { logSkipped(x, y, z, blockName, 'Unknown block'); return false; }
-      await bot.creative.setBlock({ x, y, z }, blockId);
+      await bot.creative.setBlock(pos, blockId);
       return true;
     } catch (e) {
       if (attempt < config.build.retryAttempts) {
