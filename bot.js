@@ -42,12 +42,27 @@ let viewerStarted     = false;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// ── POV Status web server ─────────────────────────────────────
-// Shows live status page + links to prismarine-viewer
+// ── Status web server ─────────────────────────────────────────
 const app = express();
+
 app.get('/', (req, res) => {
-  const total = config.image.width * config.image.height;
-  const pct   = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
+  const total      = config.image.width * config.image.height;
+  const pct        = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
+  const botStatus  = bot ? '🟢 Online' : '🔴 Offline';
+  const botClass   = bot ? 'online' : 'offline';
+  const buildStatus = isBuilding ? '✅ Yes' : '❌ No';
+  const prepStatus  = isPreparing ? '✅ Yes' : '❌ No';
+  const imgStatus   = isImageReady() ? '✅' : '❌';
+  const prepDone    = progress.prepDone ? '✅' : '❌';
+  const username    = currentUsername ?? 'none';
+  const originX     = progress.originX ?? '?';
+  const originY     = progress.originY ?? '?';
+  const originZ     = progress.originZ ?? '?';
+  const lastRow     = progress.lastRow;
+  const lastCol     = progress.lastCol;
+  const placed      = progress.totalPlaced.toLocaleString();
+  const totalStr    = total.toLocaleString();
+
   res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -58,39 +73,37 @@ app.get('/', (req, res) => {
     h1   { color: #00d4ff; }
     .stat { background: #16213e; padding: 15px; border-radius: 8px; margin: 10px 0; }
     .bar  { background: #0f3460; border-radius: 4px; height: 20px; }
-    .fill { background: #00d4ff; border-radius: 4px; height: 20px; width: ${pct}%; transition: width 1s; }
-    a    { color: #00d4ff; }
-    .online { color: #00ff88; } .offline { color: #ff4444; }
+    .fill { background: #00d4ff; border-radius: 4px; height: 20px; width: ${pct}%; }
+    a     { color: #00d4ff; }
+    .online  { color: #00ff88; }
+    .offline { color: #ff4444; }
   </style>
 </head>
 <body>
   <h1>🎨 Minecraft Pixel Art Bot</h1>
   <div class="stat">
-    <b>Bot:</b> <span class="${bot ? 'online'>🟢 Online' : 'offline">🔴 Offline'} — ${currentUsername ?? 'none'}</span><br>
-    <b>Building:</b> ${isBuilding ? '✅ Yes' : '❌ No'} &nbsp;|&nbsp;
-    <b>Preparing:</b> ${isPreparing ? '✅ Yes' : '❌ No'}
+    <b>Bot:</b> <span class="${botClass}">${botStatus}</span> — ${username}<br>
+    <b>Building:</b> ${buildStatus} &nbsp;|&nbsp; <b>Preparing:</b> ${prepStatus}
   </div>
   <div class="stat">
-    <b>Progress:</b> ${progress.totalPlaced.toLocaleString()} / ${total.toLocaleString()} blocks (${pct}%)<br>
+    <b>Progress:</b> ${placed} / ${totalStr} blocks (${pct}%)<br>
     <div class="bar"><div class="fill"></div></div><br>
-    <b>Row:</b> ${progress.lastRow} / ${config.image.height} &nbsp;|&nbsp;
-    <b>Col:</b> ${progress.lastCol} / ${config.image.width}
+    <b>Row:</b> ${lastRow} / ${config.image.height} &nbsp;|&nbsp;
+    <b>Col:</b> ${lastCol} / ${config.image.width}
   </div>
   <div class="stat">
-    <b>Origin:</b> (${progress.originX ?? '?'}, ${progress.originY ?? '?'}, ${progress.originZ ?? '?'})<br>
-    <b>Prep done:</b> ${progress.prepDone ? '✅' : '❌'} &nbsp;|&nbsp;
-    <b>Image ready:</b> ${isImageReady() ? '✅' : '❌'}
+    <b>Origin:</b> (${originX}, ${originY}, ${originZ})<br>
+    <b>Prep done:</b> ${prepDone} &nbsp;|&nbsp; <b>Image ready:</b> ${imgStatus}
   </div>
   <div class="stat">
     <b>🎮 Live POV Viewer:</b><br>
     <a href="/viewer" target="_blank">Open Bot POV (3D view) →</a><br>
-    <small>Auto-refreshes every 10s</small>
+    <small>Page auto-refreshes every 10s</small>
   </div>
 </body>
 </html>`);
 });
 
-// Proxy the prismarine viewer (it runs on port 3007 internally)
 app.get('/viewer', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -103,13 +116,13 @@ app.get('/viewer', (req, res) => {
 
 app.listen(3000, () => console.log('[Web] Status page: http://localhost:3000'));
 
-// ── Start prismarine viewer for bot POV ───────────────────────
+// ── Start prismarine viewer ───────────────────────────────────
 function startViewer(bot) {
   if (viewerStarted) return;
   try {
     viewer(bot, { port: 3007, firstPerson: true });
     viewerStarted = true;
-    console.log('[Viewer] 🎮 Bot POV live at http://localhost:3007 (or /viewer on status page)');
+    console.log('[Viewer] 🎮 Bot POV live at http://localhost:3007');
   } catch (e) {
     console.log('[Viewer] Could not start viewer:', e.message);
   }
@@ -136,42 +149,50 @@ function getNextUsername() {
 
 // ── Create bot ────────────────────────────────────────────────
 function createBot() {
-  isReconnecting   = false;
-  currentUsername  = getNextUsername();
-  console.log(`\n[Bot] Connecting as "${currentUsername}" to ${config.server.host}:${config.server.port}`);
+  isReconnecting  = false;
+  currentUsername = getNextUsername();
+  console.log('\n[Bot] Connecting as "' + currentUsername + '" to ' + config.server.host + ':' + config.server.port);
 
   bot = mineflayer.createBot({
-    host:    config.server.host,
-    port:    config.server.port,
+    host:     config.server.host,
+    port:     config.server.port,
     username: currentUsername,
-    version: config.server.version,
-    auth:    'offline',
+    version:  config.server.version,
+    auth:     'offline',
     checkTimeoutInterval: 60000,
   });
 
-  bot.once('spawn',   onSpawn);
-  bot.on('chat',      onChat);
-  bot.on('kicked',    onKicked);
-  bot.on('error',     (e) => { console.error('[Bot] Error:', e.message); isBuilding = false; isPreparing = false; scheduleReconnect(); });
-  bot.on('end',       (r) => { console.log('[Bot] Disconnected:', r);    isBuilding = false; isPreparing = false; scheduleReconnect(); });
+  bot.once('spawn', onSpawn);
+  bot.on('chat',    onChat);
+  bot.on('kicked',  onKicked);
+  bot.on('error',   function(e) {
+    console.error('[Bot] Error:', e.message);
+    isBuilding  = false;
+    isPreparing = false;
+    scheduleReconnect();
+  });
+  bot.on('end', function(r) {
+    console.log('[Bot] Disconnected:', r);
+    isBuilding  = false;
+    isPreparing = false;
+    scheduleReconnect();
+  });
 }
 
 // ── On spawn ──────────────────────────────────────────────────
 async function onSpawn() {
-  console.log(`[Bot] ✅ Spawned as "${currentUsername}"!`);
+  console.log('[Bot] ✅ Spawned as "' + currentUsername + '"!');
   reconnectAttempts = 0;
   await sleep(3000);
 
-  // Start POV viewer
   startViewer(bot);
 
-  // Enable creative fly
   try { bot.creative.startFlying(); } catch (e) {}
 
-  // Auto-resume: if prep is done and image exists, start building automatically
+  // Auto-resume if prep done and image ready
   if (progress.prepDone && isImageReady() && !isBuilding) {
     if (progress.totalPlaced > 0) {
-      console.log(`[Bot] Auto-resuming from row ${progress.lastRow} (${progress.totalPlaced} blocks already placed)`);
+      console.log('[Bot] Auto-resuming from row ' + progress.lastRow + ' (' + progress.totalPlaced + ' blocks already placed)');
     } else {
       console.log('[Bot] Auto-starting build (prep done + image ready)');
     }
@@ -191,7 +212,7 @@ async function onChat(username, message) {
     const match = full.match(/pixel\s+(\w+)/);
     if (!match) return;
     const command = match[1];
-    console.log(`[Console] pixel ${command}`);
+    console.log('[Console] pixel ' + command);
 
     if (command === 'prepare') {
       if (isPreparing || isBuilding) { console.log('[Console] Busy. Use: say pixel stop'); return; }
@@ -241,16 +262,16 @@ async function onChat(username, message) {
     if (command === 'status') {
       const total = config.image.width * config.image.height;
       const pct   = ((progress.totalPlaced / total) * 100).toFixed(1);
-      console.log(`[Status] ${progress.totalPlaced}/${total} (${pct}%) | Row ${progress.lastRow}/${config.image.height} | Building: ${isBuilding}`);
+      console.log('[Status] ' + progress.totalPlaced + '/' + total + ' (' + pct + '%) | Row ' + progress.lastRow + '/' + config.image.height + ' | Building: ' + isBuilding);
       return;
     }
 
     if (command === 'center') {
       if (progress.originX === null) { console.log('[Console] No origin yet.'); return; }
-      const cx = progress.centerX ?? Math.floor(progress.originX + config.image.width / 2);
-      const cz = progress.centerZ ?? Math.floor(progress.originZ + config.image.height / 2);
-      console.log(`[Bot] 📍 Center: ${cx}, ${progress.originY}, ${cz}`);
-      console.log(`[Bot] 📸 /tp @s ${cx} ${progress.originY + 400} ${cz} — look straight down`);
+      const cx = progress.centerX || Math.floor(progress.originX + config.image.width / 2);
+      const cz = progress.centerZ || Math.floor(progress.originZ + config.image.height / 2);
+      console.log('[Bot] 📍 Center: ' + cx + ', ' + progress.originY + ', ' + cz);
+      console.log('[Bot] 📸 /tp @s ' + cx + ' ' + (progress.originY + 400) + ' ' + cz + ' — look straight down');
       return;
     }
 
@@ -263,9 +284,9 @@ async function onChat(username, message) {
       return;
     }
 
-    console.log(`[Console] Unknown: pixel ${command}`);
+    console.log('[Console] Unknown: pixel ' + command);
   } catch (e) {
-    // silently ignore any chat parse errors
+    // silently ignore chat parse errors
   }
 }
 
@@ -306,12 +327,10 @@ async function startBuilding() {
       const y = originY;
       const z = originZ + row;
 
-      // Fly above block
       try {
         await bot.creative.flyTo(new Vec3(x, y + config.build.flyHeight, z));
       } catch (e) {}
 
-      // Place block using creative packet
       const placed = await creativePlace(bot, x, y, z, blockName);
 
       if (placed) {
@@ -336,24 +355,24 @@ async function startBuilding() {
 
     if ((row + 1) % 10 === 0) {
       const pct = (((row + 1) / H) * 100).toFixed(1);
-      console.log(`[Bot] Row ${row + 1}/${H} (${pct}%) | ${progress.totalPlaced} blocks`);
+      console.log('[Bot] Row ' + (row + 1) + '/' + H + ' (' + pct + '%) | ' + progress.totalPlaced + ' blocks');
     }
   }
 
   if (isBuilding) {
     isBuilding = false;
-    console.log(`[Bot] 🎉 BUILD COMPLETE! ${progress.totalPlaced} blocks placed.`);
-    console.log(`[Bot] Use: say pixel center — then /tp to screenshot`);
+    console.log('[Bot] 🎉 BUILD COMPLETE! ' + progress.totalPlaced + ' blocks placed.');
+    console.log('[Bot] Use: say pixel center — then /tp to screenshot');
   }
 }
 
 // ── Disconnect handlers ───────────────────────────────────────
 async function onKicked(reason) {
-  const r = reason?.toString() ?? '';
-  console.log(`[Bot] Kicked: ${r}`);
+  const r = reason ? reason.toString() : '';
+  console.log('[Bot] Kicked: ' + r);
   isBuilding = isPreparing = false;
   if (r.toLowerCase().includes('ban')) {
-    console.log(`[Bot] "${currentUsername}" banned. Switching username...`);
+    console.log('[Bot] "' + currentUsername + '" banned. Switching username...');
     markBanned(progress, currentUsername);
   }
   scheduleReconnect();
@@ -364,12 +383,12 @@ function scheduleReconnect() {
   isReconnecting = true;
   viewerStarted  = false;
 
-  try { bot?.quit(); } catch (e) {}
+  try { if (bot) bot.quit(); } catch (e) {}
   bot = null;
 
   reconnectAttempts++;
   const delay = Math.min(config.bot.reconnectDelay * reconnectAttempts, 30000);
-  console.log(`[Bot] Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+  console.log('[Bot] Reconnecting in ' + (delay / 1000) + 's... (attempt ' + reconnectAttempts + ')');
   setTimeout(createBot, delay);
 }
 
@@ -382,9 +401,9 @@ watchForImage(() => {
 console.log('================================================');
 console.log('  MINECRAFT PIXEL ART BOT v2.1');
 console.log('================================================');
-console.log(`  Server  : ${config.server.host}:${config.server.port}`);
-console.log(`  Size    : ${config.image.width}x${config.image.height}`);
-console.log(`  POV     : http://localhost:3000`);
+console.log('  Server  : ' + config.server.host + ':' + config.server.port);
+console.log('  Size    : ' + config.image.width + 'x' + config.image.height);
+console.log('  Status  : http://localhost:3000');
 console.log('================================================\n');
 
 createBot();
