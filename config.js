@@ -39,6 +39,7 @@ module.exports = {
     opDelay:       20,    // ms between /fill commands (raise to 40-60 if server lags/kicks)
     opBandRows:    80,    // rows per forceload band
     clearHeight:   'max', // 'max' = wipe the WHOLE sky above the art (up to the world limit). Or a number like 128
+    dirtBlock:     'coarse_dirt', // what 'pixel fixgrass' turns grass back into. coarse_dirt can NEVER grow grass again ('dirt' can)
     placeDelay:    5,     // ms between blocks in non-OP mode
     flyHeight:     3,     // fly just above build level
     retryAttempts: 3,
