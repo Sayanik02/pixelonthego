@@ -14,6 +14,7 @@
 //   say pixel status    - Progress
 //   say pixel center    - Screenshot coords
 //   say pixel reset     - Wipe progress
+//   say pixel fixgrass  - Turn grass blocks in the portrait back into dirt
 // ============================================================
 
 process.on('uncaughtException',  (err) => console.error('[UNCAUGHT]', err.message, err.stack));
@@ -26,7 +27,7 @@ const config     = require('./config');
 const { loadProgress, saveProgress, clearBuildProgress, logSkipped, markBanned } = require('./progressManager');
 const { watchForImage, processImage, isImageReady } = require('./imageProcessor');
 const { prepareTerrain, creativePlace } = require('./terrain');
-const { buildWithOp } = require('./opBuilder');
+const { buildWithOp, fixGrassWithOp } = require('./opBuilder');
 const { renderPreview, sendToDiscord, PREVIEW_PATH } = require('./preview');
 const { scanWorld, getScanState, WORLD_PATH } = require('./scanner');
 
@@ -185,6 +186,43 @@ app.get('/repair', async (req, res) => {
   res.redirect('/');
 });
 
+
+// ── Fix grass: turn grass blocks in the art layer back into dirt ──
+let fixGrassRunning = false;
+let fixGrassStatus  = '';
+async function startFixGrass() {
+  if (fixGrassRunning) return 'Already running';
+  if (!bot) return 'Bot is offline';
+  if (isBuilding || isPreparing) return 'Bot is busy building - try after it finishes (or say pixel stop)';
+  if (progress.originX === null) return 'No build origin yet. Run pixel prepare first.';
+  fixGrassRunning = true;
+  fixGrassStatus  = 'Running...';
+  (async () => {
+    try {
+      const W = config.image.width, H = config.image.height;
+      const dirt = config.build.dirtBlock || 'coarse_dirt';
+      const res = await fixGrassWithOp(bot, progress, W, H, { isRunning: () => fixGrassRunning && !!bot });
+      if (res.status === 'fallback') {
+        fixGrassStatus = 'Failed: bot is not OP (run "op ' + (currentUsername || 'the bot') + '" in the server console)';
+      } else if (res.status === 'paused') {
+        fixGrassStatus = 'Stopped - ' + res.fixed + ' grass blocks fixed so far';
+      } else {
+        fixGrassStatus = 'Done - ' + res.fixed + ' grass blocks turned into ' + dirt;
+      }
+    } catch (e) {
+      fixGrassStatus = 'Failed: ' + e.message;
+    }
+    fixGrassRunning = false;
+    console.log('[FixGrass] ' + fixGrassStatus);
+  })();
+  return 'Started';
+}
+
+app.get('/fixgrass', async (req, res) => {
+  console.log('[FixGrass] ' + await startFixGrass());
+  res.redirect('/');
+});
+
 app.get('/', (req, res) => {
   const total     = config.image.width * config.image.height;
   const pct       = progress.totalPlaced ? ((progress.totalPlaced / total) * 100).toFixed(1) : '0.0';
@@ -332,6 +370,7 @@ app.get('/', (req, res) => {
     <div class="card">${viewerLink}</div>
     <div class="card"><a href="/preview.png?refresh=1" target="_blank">Open build preview (PNG)</a></div>
     <div class="card">${scanCard}</div>
+    <div class="card">${fixGrassStatus ? 'Fix grass: ' + fixGrassStatus + '<br>' : ''}<a href="/fixgrass">Turn grass back into dirt</a></div>
     </body></html>`);
 });
 
@@ -506,6 +545,7 @@ async function onChat(username, message) {
 
     if (command === 'stop') {
       isBuilding = isPreparing = false;
+      fixGrassRunning = false;
       console.log('[Bot] Stopped. Use: say pixel resume');
       return;
     }
@@ -552,37 +592,7 @@ async function onChat(username, message) {
     }
 
     if (command === 'fixgrass') {
-      if (!progress.originX) { console.log('[Bot] No origin set. Run prepare first.'); return; }
-      console.log('[Bot] Fixing grass -> dirt in build area...');
-      isBuilding = false;
-      isPreparing = true;
-      (async () => {
-        const { creativePlace } = require('./terrain');
-        const ox = progress.originX;
-        const oy = progress.originY;
-        const oz = progress.originZ;
-        const w  = config.image.width;
-        const h  = config.image.height;
-        let fixed = 0;
-        for (let row = 0; row < h; row++) {
-          for (let col = 0; col < w; col++) {
-            const x = ox + col;
-            const z = oz + row;
-            // Check one below build level (the base layer)
-            for (let dy = -1; dy <= 0; dy++) {
-              const blk = bot.blockAt(new Vec3(x, oy + dy, z));
-              if (blk && (blk.name === 'grass_block' || blk.name === 'grass')) {
-                await creativePlace(bot, x, oy + dy, z, 'dirt');
-                fixed++;
-              }
-            }
-            if (col % 50 === 0) await sleep(20); // avoid flooding
-          }
-          if (row % 10 === 0) console.log('[FixGrass] Row ' + row + '/'+h+' — fixed '+fixed+' blocks so far');
-        }
-        isPreparing = false;
-        console.log('[FixGrass] Done! Fixed ' + fixed + ' grass->dirt blocks.');
-      })();
+      console.log('[FixGrass] ' + await startFixGrass());
       return;
     }
 
