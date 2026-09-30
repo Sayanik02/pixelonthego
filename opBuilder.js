@@ -10,7 +10,7 @@ const MAX_FILL = 32768;
 const MAX_Y = 319;   // 1.20.4 build limit
 
 // /fill a box, split so no single command goes over the 32768-block limit
-async function fillBox(bot, x1, y1, z1, x2, y2, z2, block, delay) {
+async function fillBox(bot, x1, y1, z1, x2, y2, z2, block, delay, replaceFilter) {
   const dx = x2 - x1 + 1, dy = y2 - y1 + 1, dz = z2 - z1 + 1;
   if (dx <= 0 || dy <= 0 || dz <= 0) return 0;
   const xStep = Math.max(1, Math.min(dx, Math.floor(MAX_FILL / dy)));
@@ -18,7 +18,8 @@ async function fillBox(bot, x1, y1, z1, x2, y2, z2, block, delay) {
   let n = 0;
   for (let z = z1; z <= z2; z += zStep) {
     for (let x = x1; x <= x2; x += xStep) {
-      bot.chat(`/fill ${x} ${y1} ${z} ${Math.min(x + xStep - 1, x2)} ${y2} ${Math.min(z + zStep - 1, z2)} minecraft:${block}`);
+      bot.chat(`/fill ${x} ${y1} ${z} ${Math.min(x + xStep - 1, x2)} ${y2} ${Math.min(z + zStep - 1, z2)} minecraft:${block}` +
+        (replaceFilter ? ` replace minecraft:${replaceFilter}` : ''));
       n++;
       if (delay > 0) await sleep(delay);
     }
@@ -218,6 +219,51 @@ async function buildWithOp(bot, grid, progress, ctl, opts = {}) {
   return 'done';
 }
 
+
+// Turn every grass block in the art layer back into dirt (fast: /fill ... replace).
+// Only blocks that are grass_block get touched, so the portrait itself is never harmed.
+// Returns { status: 'done' | 'paused' | 'fallback', fixed }
+async function fixGrassWithOp(bot, progress, W, H, ctl) {
+  const { originX, originY, originZ } = progress;
+  const dirt     = config.build.dirtBlock || 'coarse_dirt';
+  const bandRows = config.build.opBandRows || 80;
+  const delay    = config.build.opDelay ?? 20;
+
+  if (!(await checkOp(bot))) return { status: 'fallback', fixed: 0 };
+
+  const anchor = { x: originX + 2, y: originY + 3, z: originZ + 2 };
+  bot.chat('/gamemode creative');
+  bot.chat(`/tp @s ${anchor.x} ${anchor.y} ${anchor.z}`);
+  await sleep(2000);
+  try { bot.creative.startFlying(); } catch (e) {}
+
+  let fixed = 0;
+  const onMsg = (m) => {
+    const hit = /successfully filled (\d+)/i.exec(m);
+    if (hit) fixed += parseInt(hit[1], 10);
+  };
+  bot.on('messagestr', onMsg);
+
+  try {
+    for (let r0 = 0; r0 < H; r0 += bandRows) {
+      if (!ctl.isRunning()) return { status: 'paused', fixed };
+      const r1 = Math.min(r0 + bandRows, H);
+      const x1 = originX, x2 = originX + W - 1;
+      const z1 = originZ + r0, z2 = originZ + r1 - 1;
+
+      bot.chat(`/forceload add ${x1} ${z1} ${x2} ${z2}`);
+      await sleep(3500);
+      await fillBox(bot, x1, originY, z1, x2, originY, z2, dirt, delay, 'grass_block');
+      await sleep(800);
+      bot.chat(`/forceload remove ${x1} ${z1} ${x2} ${z2}`);
+      console.log(`[FixGrass] Rows ${r1}/${H} checked - ${fixed} grass blocks turned into ${dirt} so far`);
+    }
+  } finally {
+    bot.removeListener('messagestr', onMsg);
+  }
+  return { status: 'done', fixed };
+}
+
 // OP terrain prep: clear everything above, support layer below, stone art layer
 async function prepWithOp(bot, originX, originY, originZ, W, H) {
   const bandRows = 80;
@@ -237,4 +283,4 @@ async function prepWithOp(bot, originX, originY, originZ, W, H) {
   }
 }
 
-module.exports = { buildWithOp, prepWithOp, bandRects, countRects, checkOp };
+module.exports = { buildWithOp, prepWithOp, fixGrassWithOp, bandRects, countRects, checkOp };
